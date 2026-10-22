@@ -122,6 +122,10 @@ export function defaultInstrument(): NonNullable<Track["instrument"]> {
   };
 }
 
+export const DEFAULT_BOTTOM_HEIGHT = 320;
+export const MIXER_MIN_BOTTOM_HEIGHT = 300;
+export const MIN_BOTTOM_HEIGHT = 168;
+
 export const TRACK_COLORS = [
   "#4f8fce",
   "#67c07a",
@@ -202,7 +206,7 @@ class Store {
       selection: { trackId: null, clipId: null, partId: null, noteIds: [] },
       layout: {
         leftWidth: 286,
-        bottomHeight: 286,
+        bottomHeight: DEFAULT_BOTTOM_HEIGHT,
         leftTab: "inspector",
         bottomTab: "piano",
         arrangeZoom: 64,

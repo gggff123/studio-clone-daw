@@ -2,7 +2,10 @@ import { api, fileDialog, onExportProgress } from "./api";
 import {
   createProject,
   createTrack,
+  DEFAULT_BOTTOM_HEIGHT,
   defaultInstrument,
+  MIXER_MIN_BOTTOM_HEIGHT,
+  MIN_BOTTOM_HEIGHT,
   state,
   store,
   TRACK_COLORS,
@@ -322,6 +325,13 @@ export function restoreLayout(): void {
     if (!raw) return;
     const saved = JSON.parse(raw) as Partial<typeof state.layout>;
     Object.assign(state.layout, saved);
+    const maxHeight = Math.max(MIN_BOTTOM_HEIGHT, Math.min(620, window.innerHeight * 0.62));
+    const minHeight = state.layout.bottomTab === "mixer" ? MIXER_MIN_BOTTOM_HEIGHT : MIN_BOTTOM_HEIGHT;
+    state.layout.bottomHeight = clamp(
+      Number(state.layout.bottomHeight) || DEFAULT_BOTTOM_HEIGHT,
+      minHeight,
+      maxHeight,
+    );
   } catch {
     // Ignore malformed layout state.
   }
@@ -348,7 +358,9 @@ export function setLeftTab(tab: "inspector" | "media"): void {
 }
 
 export function setBottomTab(tab: "piano" | "mixer" | "none"): void {
-  setLayout({ bottomTab: tab });
+  const minimum = tab === "mixer" ? MIXER_MIN_BOTTOM_HEIGHT : MIN_BOTTOM_HEIGHT;
+  const bottomHeight = Math.max(state.layout.bottomHeight, minimum);
+  setLayout({ bottomTab: tab, bottomHeight });
 }
 
 export function selectTrack(trackId: string | null): void {

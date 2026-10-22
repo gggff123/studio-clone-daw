@@ -1,6 +1,12 @@
 import * as actions from "../actions";
 import { api, fileDialog } from "../api";
-import { state, store } from "../store";
+import {
+  DEFAULT_BOTTOM_HEIGHT,
+  MIXER_MIN_BOTTOM_HEIGHT,
+  MIN_BOTTOM_HEIGHT,
+  state,
+  store,
+} from "../store";
 import { h, isEditableTarget } from "../utils/dom";
 import {
   clamp,
@@ -688,9 +694,10 @@ function wireResizers(): void {
   wireDrag(refs.bottomResizer, "y", (event) => {
     if (!refs) return;
     const rect = refs.bottomPanel.getBoundingClientRect();
-    const height = clamp(rect.bottom - event.clientY, 168, Math.min(620, window.innerHeight * 0.62));
+    const minHeight = state.layout.bottomTab === "mixer" ? MIXER_MIN_BOTTOM_HEIGHT : MIN_BOTTOM_HEIGHT;
+    const height = clamp(rect.bottom - event.clientY, minHeight, Math.min(620, window.innerHeight * 0.62));
     actions.setLayout({ bottomHeight: height });
-  }, () => actions.setLayout({ bottomHeight: 286 }));
+  }, () => actions.setLayout({ bottomHeight: DEFAULT_BOTTOM_HEIGHT }));
 }
 
 function wireDrag(

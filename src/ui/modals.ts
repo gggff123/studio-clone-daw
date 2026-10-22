@@ -364,6 +364,10 @@ function buildExportModal(): HTMLElement {
     value: String(startBar),
     onInput: () => {
       startBar = Math.max(1, Number(startInput.value) || 1);
+      if (endBar < startBar) {
+        endBar = startBar;
+        endInput.value = String(endBar);
+      }
       updateEstimate();
     },
   });
@@ -373,7 +377,8 @@ function buildExportModal(): HTMLElement {
     min: "1",
     value: String(endBar),
     onInput: () => {
-      endBar = Math.max(1, Number(endInput.value) || 1);
+      endBar = Math.max(startBar, Number(endInput.value) || 1);
+      endInput.value = String(endBar);
       updateEstimate();
     },
   });
@@ -396,7 +401,11 @@ function buildExportModal(): HTMLElement {
     "div",
     { class: "form-row bars-row" },
     h("label", { class: "inline-field" }, h("span", { text: "Start bar" }), startInput),
-    h("label", { class: "inline-field" }, h("span", { text: "End bar" }), endInput),
+    h("label", { class: "inline-field" }, h("span", { text: "Last bar" }), endInput),
+    h("div", {
+      class: "hint-block",
+      text: "The last bar is included in the rendered range.",
+    }),
   );
 
   const progress = h(
@@ -449,7 +458,11 @@ function buildExportModal(): HTMLElement {
     const range = resolveRange();
     const seconds =
       ((range.endTicks - range.startTicks) / project.ppq) * (60 / project.tempo);
-    estimate.textContent = `${formatBarsBeats(range.startTicks, project.ppq, project.timeSignature)} → ${formatBarsBeats(range.endTicks, project.ppq, project.timeSignature)} · ${seconds.toFixed(2)} s`;
+    const firstBar = Math.floor(range.startTicks / bar) + 1;
+    const lastBar = Math.max(firstBar, Math.ceil(range.endTicks / bar));
+    estimate.textContent = `Bars ${firstBar}–${lastBar} (${lastBar - firstBar + 1} bar${
+      lastBar === firstBar ? "" : "s"
+    }) · ${seconds.toFixed(2)} s`;
   }
 
   setRange(rangeMode);

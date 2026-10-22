@@ -176,13 +176,10 @@ function render(): void {
 function renderToolbar(partInfo: { track: Track; part: MidiPart } | null): void {
   toolbar.replaceChildren();
   if (!partInfo) {
-    toolbar.append(
-      h("span", { class: "piano-title" }, icon("keyboard", 14), h("span", { text: "Piano Roll" })),
-      h("div", { class: "toolbar-spacer" }),
-      iconButton("close", () => actions.setBottomTab("none"), { title: "Close piano roll" }),
-    );
+    toolbar.style.display = "none";
     return;
   }
+  toolbar.style.display = "";
   const { track, part } = partInfo;
   const snapOptions = [
     { value: "3840", label: "Snap 1/1" },
@@ -244,7 +241,6 @@ function renderToolbar(partInfo: { track: Track; part: MidiPart } | null): void 
     h("span", { class: "piano-note-count", text: `${part.notes.length} notes` }),
     h("div", { class: "toolbar-spacer" }),
     zoom,
-    iconButton("close", () => actions.setBottomTab("none"), { title: "Close piano roll" }),
   );
 }
 
