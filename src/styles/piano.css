@@ -1,0 +1,441 @@
+/* ---------------------------------------------------------------------------
+   Piano roll / key editor
+   --------------------------------------------------------------------------- */
+
+.piano-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg-1);
+}
+
+.panel-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 29px;
+  height: 29px;
+  padding: 0 7px;
+  background: linear-gradient(#242424, #1d1d1d);
+  border-bottom: 1px solid #0d0d0d;
+  overflow: hidden;
+}
+
+.piano-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  color: #c4c4c4;
+  white-space: nowrap;
+}
+
+.piano-part-name {
+  font-size: 10px;
+  color: var(--text);
+  padding: 1px 6px;
+  border: 1px solid #3a3a3a;
+  border-radius: 3px;
+  background: #191919;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+
+.piano-track-name {
+  font-size: 9px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.piano-note-count {
+  font-size: 9px;
+  color: var(--text-faint);
+  font-family: "Cascadia Mono", "Consolas", monospace;
+  white-space: nowrap;
+}
+
+.piano-zoom {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 9px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.piano-zoom .range-input {
+  width: 68px;
+}
+
+.piano-main {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  grid-template-rows: 24px minmax(0, 1fr) 74px;
+  grid-template-areas:
+    "corner ruler"
+    "keys grid"
+    "vlabel vel";
+  background: #171717;
+}
+
+.piano-corner {
+  grid-area: corner;
+  background: linear-gradient(#252525, #1e1e1e);
+  border-right: 1px solid #0b0b0b;
+  border-bottom: 1px solid #0b0b0b;
+}
+
+.piano-ruler-view {
+  grid-area: ruler;
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(#252525, #1e1e1e);
+  border-bottom: 1px solid #0b0b0b;
+}
+
+.piano-ruler-inner {
+  position: relative;
+  height: 100%;
+  min-width: 100%;
+  will-change: transform;
+}
+
+.piano-ruler-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: #4a4a4a;
+}
+
+.piano-ruler-label {
+  position: absolute;
+  top: 4px;
+  font-size: 9px;
+  font-family: "Cascadia Mono", "Consolas", monospace;
+  color: #9d9d9d;
+  pointer-events: none;
+}
+
+.piano-marker {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 7px;
+  opacity: 0.9;
+}
+
+.piano-ruler-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: #e8e8e8;
+  pointer-events: none;
+}
+
+.piano-keys-view {
+  grid-area: keys;
+  position: relative;
+  overflow: hidden;
+  background: #202020;
+  border-right: 1px solid #0b0b0b;
+}
+
+.piano-keys-inner {
+  position: relative;
+  will-change: transform;
+}
+
+.piano-key {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 5px;
+  box-sizing: border-box;
+  border-bottom: 1px solid #5b5b5b;
+  cursor: pointer;
+  user-select: none;
+}
+
+.piano-key.is-white {
+  background: linear-gradient(90deg, #cfcfcf, #f0f0f0 72%, #dedede);
+  color: #5f5f5f;
+}
+
+.piano-key.is-black {
+  background: linear-gradient(90deg, #1a1a1a, #303030 76%, #202020);
+  color: #9c9c9c;
+  border-bottom-color: #0a0a0a;
+}
+
+.piano-key:hover {
+  filter: brightness(1.12);
+}
+
+.piano-key:active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.key-name {
+  font-size: 8px;
+  pointer-events: none;
+  font-family: "Cascadia Mono", "Consolas", monospace;
+}
+
+.piano-grid-scroll {
+  grid-area: grid;
+  position: relative;
+  overflow: auto;
+  background: #181818;
+  min-width: 0;
+  min-height: 0;
+}
+
+.piano-grid {
+  position: relative;
+  min-width: 100%;
+  background-image:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
+  background-size: var(--bar-width, 256px) 100%, var(--beat-width, 64px) 100%;
+}
+
+.pitch-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.025);
+  pointer-events: none;
+}
+
+.pitch-row.is-black {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.piano-bar-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.16);
+  pointer-events: none;
+}
+
+.piano-beat-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.055);
+  pointer-events: none;
+}
+
+.part-boundary {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(201, 162, 39, 0.55);
+  border-right: 1px dashed rgba(201, 162, 39, 0.3);
+  pointer-events: none;
+}
+
+.piano-note {
+  position: absolute;
+  border: 1px solid color-mix(in srgb, var(--note-color, var(--accent)) 55%, #000);
+  border-radius: 2px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--note-color, var(--accent)) 90%, #fff),
+    color-mix(in srgb, var(--note-color, var(--accent)) 72%, #000)
+  );
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.28);
+  cursor: grab;
+  overflow: hidden;
+  z-index: 2;
+}
+
+.piano-note:hover {
+  filter: brightness(1.14);
+}
+
+.piano-note.is-selected {
+  border-color: #f7fbff;
+  box-shadow: 0 0 0 1px #fff, 0 0 6px rgba(255, 255, 255, 0.35);
+  z-index: 3;
+}
+
+.piano-note.is-dragging {
+  cursor: grabbing;
+  z-index: 4;
+}
+
+.note-label {
+  position: absolute;
+  left: 3px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 8px;
+  line-height: 1;
+  color: rgba(0, 0, 0, 0.62);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.note-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  cursor: ew-resize;
+  z-index: 2;
+}
+
+.note-handle.left {
+  left: 0;
+}
+
+.note-handle.right {
+  right: 0;
+}
+
+.note-handle:hover {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.piano-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(232, 232, 232, 0.9);
+  pointer-events: none;
+  z-index: 10;
+}
+
+.piano-vel-label {
+  grid-area: vlabel;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 4px;
+  background: #1d1d1d;
+  border-right: 1px solid #0b0b0b;
+  border-top: 1px solid #0b0b0b;
+  color: var(--text-faint);
+  font-size: 7px;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+}
+
+.piano-vel-view {
+  grid-area: vel;
+  position: relative;
+  overflow: hidden;
+  background: #161616;
+  border-top: 1px solid #0b0b0b;
+}
+
+.piano-vel-inner {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  min-width: 100%;
+  will-change: transform;
+}
+
+.vel-bar {
+  position: absolute;
+  bottom: 0;
+  width: 5px;
+  min-height: 2px;
+  border-radius: 1px 1px 0 0;
+  background: #6b7f91;
+  cursor: ns-resize;
+}
+
+.vel-bar:hover {
+  background: #8ba7bd;
+}
+
+.vel-bar.is-selected {
+  background: var(--accent);
+  box-shadow: 0 0 4px rgba(79, 143, 206, 0.6);
+}
+
+.piano-vel-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(232, 232, 232, 0.7);
+  pointer-events: none;
+}
+
+/* Empty part state -------------------------------------------------------- */
+
+.piano-empty {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 18px;
+  text-align: center;
+  background:
+    radial-gradient(circle at 50% 35%, rgba(255, 255, 255, 0.035), transparent 60%),
+    #171717;
+}
+
+.part-choice-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 5px;
+  max-width: 560px;
+  margin-top: 6px;
+}
+
+.part-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 180px;
+  padding: 4px 8px;
+  border: 1px solid #3a3a3a;
+  border-radius: 3px;
+  background: #202020;
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.part-choice:hover {
+  border-color: #4d4d4d;
+  background: #282828;
+  color: var(--text);
+}
+
+.part-choice-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.part-choice-count {
+  color: var(--text-faint);
+  font-size: 8px;
+}

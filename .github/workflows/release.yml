@@ -1,0 +1,136 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (for example v0.1.0). The tag must already exist."
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  windows:
+    name: Windows portable build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+      - run: npm run tauri:build:exe
+
+      - name: Package portable executable
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release | Out-Null
+          $name = "Studio-Clone-$env:RELEASE_TAG-windows-x64"
+          Copy-Item src-tauri/target/release/studio-clone.exe "release/$name.exe"
+          Compress-Archive -Path "release/$name.exe", README.md -DestinationPath "release/$name.zip" -Force
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-portable
+          path: release/*
+          if-no-files-found: error
+
+  linux:
+    name: Linux AppImage and deb
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Tauri Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+      - name: Build Linux bundles
+        run: npm run tauri:build -- --bundles appimage,deb
+
+      - name: Stage Linux artifacts
+        run: |
+          mkdir -p release
+          cp src-tauri/target/release/bundle/appimage/*.AppImage release/ || true
+          cp src-tauri/target/release/bundle/deb/*.deb release/ || true
+          ls -lah release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: release/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish draft release
+    needs: [windows, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+
+      - name: List release assets
+        run: ls -lah release
+
+      - name: Create or update release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: Studio Clone ${{ env.RELEASE_TAG }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          overwrite_files: true
+          body: |
+            Studio Clone desktop DAW preview.
+
+            Windows
+            - Portable executable: `Studio-Clone-${{ env.RELEASE_TAG }}-windows-x64.exe`
+            - Portable ZIP with README: `Studio-Clone-${{ env.RELEASE_TAG }}-windows-x64.zip`
+            - Requires Microsoft Edge WebView2 Runtime.
+
+            Linux
+            - AppImage: portable x86_64 build
+            - deb: Debian/Ubuntu package
+
+            Known limitations: no audio/MIDI recording, no ASIO, sends are stored but not mixed,
+            constant tempo, and no plug-in hosting. See README.md for the full list.
+
+            This is an original, Cubase-inspired project and is not affiliated with Steinberg.
+          files: release/*
+          fail_on_unmatched_files: true

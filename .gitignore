@@ -1,0 +1,43 @@
+# Node / frontend
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Rust / Tauri
+src-tauri/target/
+src-tauri/gen/
+target/
+**/*.rs.bk
+*.pdb
+
+# Local development logs and captures
+*.log
+*.png.bak
+/tauri-dev.log
+/tauri-release-build.log
+/gh-auth.log
+
+# Local release staging
+/release/
+
+# Editor / OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local secrets and environment overrides
+.env
+.env.*
+!.env.example
+
+# User project/media artifacts
+*.cproj
+*.cproj.*.bak
+*.media/
