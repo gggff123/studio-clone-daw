@@ -5,7 +5,7 @@ versioning for application releases; the project-file schema has its own version
 
 ## [0.1.0] - 2026-10-22
 
-### Added
+## Added
 
 - Tauri 2 desktop application with a React-free TypeScript UI and Rust backend.
 - Arrangement with audio, instrument, MIDI, group, and FX tracks.
