@@ -32,6 +32,6 @@
     "targets": ["nsis"],
     "shortDescription": "Cubase-inspired digital audio workstation",
     "longDescription": "Studio Clone is an original Cubase Pro 12-inspired digital audio workstation.",
-    "icon": []
+    "icon": ["icons/icon.png"]
   }
 }
