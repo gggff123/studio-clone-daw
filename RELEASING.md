@@ -28,23 +28,20 @@ Smoke-test the executable before publishing:
 
 ## CI release workflow
 
-`.github/workflows/release.yml` builds:
+`.github/workflows/ci.yml` runs the frontend build, Rust check, and core tests on
+Windows for pull requests and pushes to `main`.
 
-- Windows portable `.exe` and `.zip`
-- Linux `.AppImage` and `.deb`
+After a push to `main` passes CI, `.github/workflows/release.yml` automatically
+builds and publishes a Windows portable `.exe` and `.zip`. Each release increments
+the patch version from the latest published release (or starts from the version in
+`package.json` if there is no published release). The generated tag and build
+metadata use the same version.
 
-Trigger it by pushing a tag:
+Windows 7 is not supported by the current Tauri 2.12 toolchain. The Windows release
+targets Windows 10/11 x64.
 
-```powershell
-git tag v0.1.0
-git push origin v0.1.0
-```
-
-Or run **Release** from GitHub Actions and provide an existing tag. The workflow
-creates a **draft** release so assets can be checked before publishing.
-
-The workflow is intentionally conservative: it does not publish a non-draft release
-without human review.
+Releases are published automatically after successful CI; review the workflow run
+and release assets in GitHub after each push to `main`.
 
 ## Manual release checklist
 
