@@ -1,117 +1,105 @@
 name: Release
 
 on:
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "Release tag (for example v0.1.0). The tag must already exist."
-        required: true
-        type: string
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  group: automated-release
   cancel-in-progress: false
 
-env:
-  RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
-
 jobs:
-  windows:
-    name: Windows portable build
+  release:
+    name: Build and publish Windows release
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push'
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
+      - name: Check out the commit that passed CI
+        uses: actions/checkout@v4
         with:
-          node-version: 22
-          cache: npm
+          ref: ${{ github.event.workflow_run.head_sha }}
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Choose next patch version
+        id: next-version
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const packageVersion = JSON.parse(fs.readFileSync('package.json', 'utf8')).version;
+            const releases = await github.rest.repos.listReleases({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100,
+            });
+            const parse = (value) => {
+              const match = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(value || '');
+              return match ? match.slice(1).map(Number) : null;
+            };
+            const versions = releases.data
+              .filter((release) => !release.draft && !release.prerelease)
+              .map((release) => parse(release.tag_name))
+              .filter(Boolean)
+              .sort((a, b) => b[0] - a[0] || b[1] - a[1] || b[2] - a[2]);
+            const current = versions[0] || parse(packageVersion);
+            if (!current) throw new Error(`Cannot determine a release version from ${packageVersion}`);
+            current[2] += 1;
+            core.setOutput('tag', `v${current.join('.')}`);
 
-      - uses: swatinem/rust-cache@v2
+      - name: Set release version in build metadata
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ steps.next-version.outputs.tag }}
+        run: |
+          $version = $env:RELEASE_TAG.TrimStart('v')
+          npm version $version --no-git-tag-version --ignore-scripts
+          foreach ($path in @('src-tauri/Cargo.toml', 'src-tauri/core/Cargo.toml')) {
+            $contents = Get-Content -LiteralPath $path -Raw
+            $updated = [regex]::Replace($contents, '(?m)^version = "[^"]+"', "version = `"$version`"", 1)
+            if ($updated -eq $contents) { throw "Could not update version in $path" }
+            Set-Content -LiteralPath $path -Value $updated -NoNewline
+          }
+          $configPath = 'src-tauri/tauri.conf.json'
+          $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+          $config.version = $version
+          $config | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $configPath
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
 
-      - run: npm ci
-      - run: npm run tauri:build:exe
+      - name: Install frontend dependencies
+        run: npm ci
 
-      - name: Package portable executable
+      - name: Build portable Windows executable
+        run: npm run tauri:build:exe
+
+      - name: Package release assets
         shell: pwsh
+        env:
+          RELEASE_TAG: ${{ steps.next-version.outputs.tag }}
         run: |
           New-Item -ItemType Directory -Force -Path release | Out-Null
           $name = "Studio-Clone-$env:RELEASE_TAG-windows-x64"
           Copy-Item src-tauri/target/release/studio-clone.exe "release/$name.exe"
           Compress-Archive -Path "release/$name.exe", README.md -DestinationPath "release/$name.zip" -Force
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: windows-portable
-          path: release/*
-          if-no-files-found: error
-
-  linux:
-    name: Linux AppImage and deb
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Tauri Linux dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev libasound2-dev patchelf
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-
-      - run: npm ci
-      - name: Build Linux bundles
-        run: npm run tauri:build -- --bundles appimage,deb
-
-      - name: Stage Linux artifacts
-        run: |
-          mkdir -p release
-          cp src-tauri/target/release/bundle/appimage/*.AppImage release/ || true
-          cp src-tauri/target/release/bundle/deb/*.deb release/ || true
-          ls -lah release
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: linux-packages
-          path: release/*
-          if-no-files-found: error
-
-  publish:
-    name: Publish draft release
-    needs: [windows, linux]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/download-artifact@v4
-        with:
-          path: release
-          merge-multiple: true
-
-      - name: List release assets
-        run: ls -lah release
-
-      - name: Create or update release
+      - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.RELEASE_TAG }}
-          name: Studio Clone ${{ env.RELEASE_TAG }}
+          tag_name: ${{ steps.next-version.outputs.tag }}
+          target_commitish: ${{ github.event.workflow_run.head_sha }}
+          name: Studio Clone ${{ steps.next-version.outputs.tag }}
           draft: false
           prerelease: false
           generate_release_notes: true
@@ -120,17 +108,11 @@ jobs:
             Studio Clone desktop DAW preview.
 
             Windows
-            - Portable executable: `Studio-Clone-${{ env.RELEASE_TAG }}-windows-x64.exe`
-            - Portable ZIP with README: `Studio-Clone-${{ env.RELEASE_TAG }}-windows-x64.zip`
+            - Portable executable: `Studio-Clone-${{ steps.next-version.outputs.tag }}-windows-x64.exe`
+            - Portable ZIP with README: `Studio-Clone-${{ steps.next-version.outputs.tag }}-windows-x64.zip`
             - Requires Microsoft Edge WebView2 Runtime.
 
-            Linux
-            - AppImage: portable x86_64 build
-            - deb: Debian/Ubuntu package
-
-            Known limitations: no audio/MIDI recording, no ASIO, sends are stored but not mixed,
-            constant tempo, and no plug-in hosting. See README.md for the full list.
-
-            This is an original, Cubase-inspired project and is not affiliated with Steinberg.
+            This build targets currently supported Windows versions. Windows 7 is not supported by the current Tauri/WebView2 toolchain.
+            See README.md for the full list of limitations.
           files: release/*
           fail_on_unmatched_files: true
