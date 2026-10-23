@@ -165,9 +165,7 @@ export function verticalFader(options: FaderOptions): FaderControl {
     "div",
     {
       class: "fader",
-      style: {
-        height: `${options.height ?? 168}px`,
-      },
+      style: options.height ? { height: `${options.height}px` } : undefined,
     },
     track,
     meter,
