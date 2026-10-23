@@ -226,7 +226,7 @@
 
 .strip-fader-row {
   flex: 1 1 auto;
-  min-height: 52px;
+  min-height: 0;
   display: flex;
   align-items: stretch;
   justify-content: center;
@@ -418,8 +418,6 @@
 }
 
 .strip-fader-row .fader {
-  width: 100%;
-  height: 100%;
   margin-bottom: 5px;
 }
 

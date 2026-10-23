@@ -61,7 +61,6 @@ let seekPending: number | null = null;
 let seekTimer: number | undefined;
 let followPlayback = true;
 let playingLast = false;
-let lastPositionTicks = 0;
 
 function ppq(): number {
   return state.project.ppq;
@@ -974,30 +973,21 @@ function applySelection(): void {
   }
 }
 
-function revealPlayhead(px: number): void {
-  const viewLeft = laneScroll.scrollLeft;
-  const viewRight = viewLeft + laneScroll.clientWidth;
-  if (px < viewLeft + 12 || px > viewRight - 60) {
-    laneScroll.scrollLeft = Math.max(0, px - laneScroll.clientWidth * 0.25);
-  }
-}
-
 function updateTransport(): void {
   const transport = state.transport;
   if (!transport) return;
   const px = tickToPx(transport.positionTicks);
   playheadEl.style.left = `${px}px`;
   rulerPlayhead.style.left = `${px}px`;
-  const returnedToStart =
-    !transport.playing && transport.positionTicks === 0 && lastPositionTicks > 0;
   if (transport.playing && followPlayback) {
-    revealPlayhead(px);
-  } else if (!transport.playing && (playingLast || returnedToStart)) {
-    revealPlayhead(px);
+    const viewLeft = laneScroll.scrollLeft;
+    const viewRight = viewLeft + laneScroll.clientWidth;
+    if (px < viewLeft + 12 || px > viewRight - 60) {
+      laneScroll.scrollLeft = Math.max(0, px - laneScroll.clientWidth * 0.25);
+    }
   }
   if (transport.playing && !playingLast) followPlayback = true;
   playingLast = transport.playing;
-  lastPositionTicks = transport.positionTicks;
 
   for (const meter of lanesEl.querySelectorAll<HTMLElement>(".track-meter")) {
     const trackId = meter.dataset.meterId ?? "";
@@ -1034,7 +1024,7 @@ function paintWaveform(
   const context = canvas.getContext("2d");
   if (!context) return;
   context.clearRect(0, 0, safeWidth, safeHeight);
-  const peaks = actions.waveformPeaks(clip.mediaPath, clip.offsetTicks, clip.durationTicks);
+  const peaks = actions.waveformPeaks(clip.mediaPath);
   const middle = safeHeight / 2;
   context.strokeStyle = "rgba(255,255,255,0.12)";
   context.beginPath();

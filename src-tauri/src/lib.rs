@@ -37,8 +37,6 @@ pub fn run() {
             commands::transport_play,
             commands::transport_pause,
             commands::transport_stop,
-            commands::start_audio_recording,
-            commands::stop_audio_recording,
             commands::transport_seek,
             commands::transport_return_to_start,
             commands::transport_set_loop,
