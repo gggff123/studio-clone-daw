@@ -62,7 +62,6 @@ export interface LayoutState {
   pianoZoom: number;
   tool: EditTool;
   snapTicks: number;
-  trackColor: string;
 }
 
 export interface ToastMessage {
@@ -122,10 +121,6 @@ export function defaultInstrument(): NonNullable<Track["instrument"]> {
     polyphony: 16,
   };
 }
-
-export const DEFAULT_BOTTOM_HEIGHT = 320;
-export const MIXER_MIN_BOTTOM_HEIGHT = 300;
-export const MIN_BOTTOM_HEIGHT = 168;
 
 export const TRACK_COLORS = [
   "#4f8fce",
@@ -207,14 +202,13 @@ class Store {
       selection: { trackId: null, clipId: null, partId: null, noteIds: [] },
       layout: {
         leftWidth: 286,
-        bottomHeight: DEFAULT_BOTTOM_HEIGHT,
+        bottomHeight: 286,
         leftTab: "inspector",
         bottomTab: "piano",
         arrangeZoom: 64,
         pianoZoom: 12,
         tool: "select",
         snapTicks: 240,
-        trackColor: TRACK_COLORS[0],
       },
       transport: null,
       devices: null,

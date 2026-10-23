@@ -23,7 +23,6 @@ pub struct AppState {
     pub last_project: Mutex<Option<Project>>,
     pub midi: Mutex<MidiInputManager>,
     pub autosave_dir: PathBuf,
-    pub recording: Mutex<Option<crate::audio::capture::AudioCapture>>,
 }
 
 impl AppState {
@@ -37,7 +36,6 @@ impl AppState {
             last_project: Mutex::new(None),
             midi: Mutex::new(MidiInputManager::default()),
             autosave_dir: base.join("autosave"),
-            recording: Mutex::new(None),
         }
     }
 }
@@ -180,28 +178,6 @@ pub fn transport_pause(state: State<'_, SharedState>) -> Result<(), String> {
 pub fn transport_stop(state: State<'_, SharedState>) -> Result<(), String> {
     lock_engine(&state)?.stop();
     Ok(())
-}
-
-#[tauri::command]
-pub fn start_audio_recording(state: State<'_, SharedState>, device: Option<String>) -> Result<(), String> {
-    let mut recording = state.recording.lock().map_err(|_| "Recording state lock was poisoned.".to_string())?;
-    if recording.is_some() { return Err("Recording is already active.".into()); }
-    *recording = Some(crate::audio::capture::AudioCapture::start(device.as_deref())?);
-    lock_engine(&state)?.set_recording(true);
-    Ok(())
-}
-
-#[tauri::command]
-pub fn stop_audio_recording(state: State<'_, SharedState>) -> Result<String, String> {
-    let capture = state.recording.lock().map_err(|_| "Recording state lock was poisoned.".to_string())?
-        .take().ok_or_else(|| "No audio recording is active.".to_string())?;
-    lock_engine(&state)?.set_recording(false);
-    let dir = dirs::data_local_dir().unwrap_or_else(std::env::temp_dir).join("StudioClone").join("Recordings");
-    std::fs::create_dir_all(&dir).map_err(|e| format!("Cannot create recording folder: {e}"))?;
-    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
-    let path = dir.join(format!("Take-{stamp}.wav"));
-    capture.finish(&path)?;
-    Ok(path.to_string_lossy().to_string())
 }
 
 #[tauri::command]

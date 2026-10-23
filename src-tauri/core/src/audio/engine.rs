@@ -221,10 +221,6 @@ impl AudioEngine {
         self.shared.bump_reset();
     }
 
-    pub fn set_recording(&self, recording: bool) {
-        self.shared.recording.store(recording, Ordering::SeqCst);
-    }
-
     pub fn stop(&self) {
         self.shared.playing.store(false, Ordering::SeqCst);
         self.shared.bump_reset();

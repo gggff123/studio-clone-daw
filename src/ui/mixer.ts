@@ -4,6 +4,7 @@ import type { InsertEffect, Track } from "../types";
 import { h } from "../utils/dom";
 import { formatDb } from "../utils/format";
 import {
+  iconButton,
   inlineRename,
   rangeControl,
   verticalFader,
@@ -37,16 +38,20 @@ export function mountMixer(element: HTMLElement): void {
 function render(): void {
   faders.clear();
   toolbar.replaceChildren(
-    h("span", {
-      class: "mixer-count",
-      text: `${state.project.tracks.length} channel${state.project.tracks.length === 1 ? "" : "s"}`,
-    }),
+    h(
+      "span",
+      { class: "piano-title" },
+      icon("mixer", 14),
+      h("span", { text: "MixConsole" }),
+      h("span", { class: "mixer-count", text: `${state.project.tracks.length} channels` }),
+    ),
     h("div", { class: "toolbar-spacer" }),
     h(
       "button",
       { class: "text-btn", type: "button", onClick: () => actions.openModal("addTrack") },
       "Add Channel",
     ),
+    iconButton("close", () => actions.setBottomTab("none"), { title: "Close MixConsole" }),
   );
   stripsHost.replaceChildren();
   for (const track of state.project.tracks) {
@@ -110,6 +115,7 @@ function buildStrip(track: Track): HTMLElement {
 
   const fader = verticalFader({
     valueDb: track.volumeDb,
+    height: 148,
     onStart: () => actions.beginGesture(),
     onPreview: (db) => actions.setTrackVolume(track.id, db, true),
     onEnd: () => actions.endGesture("project"),
@@ -311,6 +317,7 @@ function buildMasterStrip(): HTMLElement {
 
   const fader = verticalFader({
     valueDb: master.volumeDb,
+    height: 176,
     onStart: () => actions.beginGesture(),
     onPreview: (db) => actions.setMasterVolume(db, true),
     onEnd: () => actions.endGesture("project"),

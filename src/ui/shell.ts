@@ -1,12 +1,6 @@
 import * as actions from "../actions";
 import { api, fileDialog } from "../api";
-import {
-  DEFAULT_BOTTOM_HEIGHT,
-  MIXER_MIN_BOTTOM_HEIGHT,
-  MIN_BOTTOM_HEIGHT,
-  state,
-  store,
-} from "../store";
+import { state, store } from "../store";
 import { h, isEditableTarget } from "../utils/dom";
 import {
   clamp,
@@ -33,7 +27,6 @@ interface ToolbarRefs {
   tempo: HTMLInputElement;
   signature: HTMLButtonElement;
   play: HTMLButtonElement;
-  record: HTMLButtonElement;
   stop: HTMLButtonElement;
   loop: HTMLButtonElement;
   metro: HTMLButtonElement;
@@ -250,7 +243,6 @@ function buildToolbar(): { element: HTMLElement; refs: ToolbarRefs } {
     menuButton("File", fileMenu),
     menuButton("Edit", editMenu),
     menuButton("Project", projectMenu),
-    menuButton("Settings", settingsMenu),
   );
 
   const toolGroup = h("div", { class: "tool-group", role: "group", "aria-label": "Edit tools" });
@@ -325,11 +317,12 @@ function buildToolbar(): { element: HTMLElement; refs: ToolbarRefs } {
     size: 17,
   });
   const record = iconButton("record", () => {
-      void actions.toggleAudioRecording();
+      actions.toast("Recording is not implemented in this build.", "info");
     }, {
-      title: "Record to armed audio track",
+      title: "Record — not implemented",
       className: "transport-btn record-btn",
       size: 14,
+      disabled: true,
     });
   const loop = iconButton("loop", () => void actions.toggleLoop(), {
     title: "Cycle / loop (L)",
@@ -432,7 +425,6 @@ function buildToolbar(): { element: HTMLElement; refs: ToolbarRefs } {
       tempo,
       signature,
       play,
-      record,
       stop,
       loop,
       metro,
@@ -521,7 +513,6 @@ function updateTransportChrome(): void {
   if (existing) existing.replaceWith(icon(iconName, 17));
   toolbar.play.classList.toggle("is-playing", playing);
   toolbar.play.title = playing ? "Pause (Space)" : "Play (Space)";
-  toolbar.record.classList.toggle("is-active", transport?.recording ?? false);
   toolbar.loop.classList.toggle("is-active", state.project.loopRegion.enabled);
   toolbar.metro.classList.toggle("is-active", state.project.metronome);
   const master = clamp((peakToDb(transport?.masterPeak ?? 0) + 60) / 60, 0, 1);
@@ -662,35 +653,6 @@ function projectMenu(): MenuItem[] {
   ];
 }
 
-function settingsMenu(): MenuItem[] {
-  const ppq = state.project.ppq;
-  const snapItems: MenuItem[] = [
-    { label: "Off", checked: state.layout.snapTicks === 0, action: () => actions.setSnap(0) },
-    { label: "1/4", checked: state.layout.snapTicks === ppq, action: () => actions.setSnap(ppq) },
-    { label: "1/8", checked: state.layout.snapTicks === ppq / 2, action: () => actions.setSnap(ppq / 2) },
-    { label: "1/16", checked: state.layout.snapTicks === ppq / 4, action: () => actions.setSnap(ppq / 4) },
-    { label: "1/32", checked: state.layout.snapTicks === ppq / 8, action: () => actions.setSnap(ppq / 8) },
-    { label: "1/16 Triplet", checked: state.layout.snapTicks === ppq / 6, action: () => actions.setSnap(ppq / 6) },
-  ];
-  const colors: MenuItem[] = [
-    { label: "Blue", checked: state.layout.trackColor === "#4f8fce", action: () => actions.setDefaultTrackColor("#4f8fce") },
-    { label: "Green", checked: state.layout.trackColor === "#67c07a", action: () => actions.setDefaultTrackColor("#67c07a") },
-    { label: "Gold", checked: state.layout.trackColor === "#c9a227", action: () => actions.setDefaultTrackColor("#c9a227") },
-    { label: "Orange", checked: state.layout.trackColor === "#c97a4f", action: () => actions.setDefaultTrackColor("#c97a4f") },
-    { label: "Purple", checked: state.layout.trackColor === "#a56fce", action: () => actions.setDefaultTrackColor("#a56fce") },
-    { label: "Teal", checked: state.layout.trackColor === "#4fc0b7", action: () => actions.setDefaultTrackColor("#4fc0b7") },
-    { label: "Pink", checked: state.layout.trackColor === "#ce4f7a", action: () => actions.setDefaultTrackColor("#ce4f7a") },
-    { label: "Olive", checked: state.layout.trackColor === "#8a9a5b", action: () => actions.setDefaultTrackColor("#8a9a5b") },
-  ];
-  return [
-    { label: "Snap Grid", disabled: true },
-    ...snapItems,
-    { separator: true },
-    { label: "Default Track Color", disabled: true },
-    ...colors,
-  ];
-}
-
 // ---------------------------------------------------------------------------
 // Layout / resizers
 // ---------------------------------------------------------------------------
@@ -726,10 +688,9 @@ function wireResizers(): void {
   wireDrag(refs.bottomResizer, "y", (event) => {
     if (!refs) return;
     const rect = refs.bottomPanel.getBoundingClientRect();
-    const minHeight = state.layout.bottomTab === "mixer" ? MIXER_MIN_BOTTOM_HEIGHT : MIN_BOTTOM_HEIGHT;
-    const height = clamp(rect.bottom - event.clientY, minHeight, Math.min(620, window.innerHeight * 0.62));
+    const height = clamp(rect.bottom - event.clientY, 168, Math.min(620, window.innerHeight * 0.62));
     actions.setLayout({ bottomHeight: height });
-  }, () => actions.setLayout({ bottomHeight: DEFAULT_BOTTOM_HEIGHT }));
+  }, () => actions.setLayout({ bottomHeight: 286 }));
 }
 
 function wireDrag(
