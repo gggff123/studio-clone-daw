@@ -1034,7 +1034,7 @@ function paintWaveform(
   const context = canvas.getContext("2d");
   if (!context) return;
   context.clearRect(0, 0, safeWidth, safeHeight);
-  const peaks = actions.waveformPeaks(clip.mediaPath);
+  const peaks = actions.waveformPeaks(clip.mediaPath, clip.offsetTicks, clip.durationTicks);
   const middle = safeHeight / 2;
   context.strokeStyle = "rgba(255,255,255,0.12)";
   context.beginPath();

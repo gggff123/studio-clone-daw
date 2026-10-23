@@ -13,8 +13,13 @@ export interface MenuItem {
 
 let activeMenu: HTMLElement | null = null;
 let cleanup: (() => void) | null = null;
+let pointerListenerTimer: number | undefined;
 
 export function closeMenu(): void {
+  if (pointerListenerTimer !== undefined) {
+    window.clearTimeout(pointerListenerTimer);
+    pointerListenerTimer = undefined;
+  }
   activeMenu?.remove();
   activeMenu = null;
   cleanup?.();
@@ -71,10 +76,17 @@ export function openMenuAt(x: number, y: number, items: MenuItem[]): void {
   const onKey = (event: KeyboardEvent): void => {
     if (event.key === "Escape") closeMenu();
   };
-  window.setTimeout(() => document.addEventListener("pointerdown", onPointer, true), 0);
+  pointerListenerTimer = window.setTimeout(() => {
+    pointerListenerTimer = undefined;
+    if (activeMenu) document.addEventListener("pointerdown", onPointer, true);
+  }, 0);
   document.addEventListener("keydown", onKey, true);
   window.addEventListener("blur", closeMenu, { once: true });
   cleanup = () => {
+    if (pointerListenerTimer !== undefined) {
+      window.clearTimeout(pointerListenerTimer);
+      pointerListenerTimer = undefined;
+    }
     document.removeEventListener("pointerdown", onPointer, true);
     document.removeEventListener("keydown", onKey, true);
   };

@@ -62,6 +62,7 @@ export interface LayoutState {
   pianoZoom: number;
   tool: EditTool;
   snapTicks: number;
+  trackColor: string;
 }
 
 export interface ToastMessage {
@@ -213,6 +214,7 @@ class Store {
         pianoZoom: 12,
         tool: "select",
         snapTicks: 240,
+        trackColor: TRACK_COLORS[0],
       },
       transport: null,
       devices: null,
