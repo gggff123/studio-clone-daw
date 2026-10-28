@@ -128,8 +128,9 @@ jobs:
             - AppImage: portable x86_64 build
             - deb: Debian/Ubuntu package
 
-            Known limitations: no audio/MIDI recording, no ASIO, sends are stored but not mixed,
-            constant tempo, and no plug-in hosting. See README.md for the full list.
+            Known limitations: no MIDI recording, no ASIO, input monitoring is not implemented,
+            sends are stored but not mixed, constant tempo, and no plug-in hosting.
+            See README.md for the full list.
 
             This is an original, Cubase-inspired project and is not affiliated with Steinberg.
           files: release/*
