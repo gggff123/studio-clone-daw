@@ -364,7 +364,7 @@ function buildTrackHeader(track: Track): HTMLElement {
     class: `mini-btn rec ${track.recordArm ? "is-active" : ""}`,
     type: "button",
     text: "R",
-    title: "Record enable (recording not implemented)",
+    title: "Record-arm this audio track",
     onClick: (event: MouseEvent) => {
       event.stopPropagation();
       actions.toggleRecordArm(track.id);
@@ -725,6 +725,15 @@ function attachItemEvents(
             { startTicks: start, durationTicks: duration, offsetTicks: offset },
             true,
           );
+          const canvas = itemDrag.element.querySelector<HTMLCanvasElement>(".clip-canvas");
+          if (canvas) {
+            paintWaveform(
+              canvas,
+              item as AudioClip,
+              tickToPx(duration),
+              canvas.clientHeight,
+            );
+          }
         } else {
           actions.updatePart(track.id, itemDrag.itemId, { startTicks: start }, true);
         }
@@ -1024,7 +1033,11 @@ function paintWaveform(
   const context = canvas.getContext("2d");
   if (!context) return;
   context.clearRect(0, 0, safeWidth, safeHeight);
-  const peaks = actions.waveformPeaks(clip.mediaPath);
+  const peaks = actions.waveformPeaks(
+    clip.mediaPath,
+    clip.offsetTicks,
+    clip.durationTicks,
+  );
   const middle = safeHeight / 2;
   context.strokeStyle = "rgba(255,255,255,0.12)";
   context.beginPath();

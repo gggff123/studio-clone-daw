@@ -3,6 +3,35 @@
 All notable changes to Studio Clone are recorded here. The project uses semantic
 versioning for application releases; the project-file schema has its own version.
 
+## [Unreleased]
+
+### Added
+
+- Real audio recording from the selected CPAL/WASAPI input to a stereo float
+  WAV. The record button arms/targets an audio track, starts the transport, and
+  creates a clip at the record start position when recording stops.
+- A preallocated buffer pool and dedicated writer thread keep file I/O and
+  frontend waits out of the audio callback. Dropped frames and input errors are
+  reported to the UI.
+- Settings menu and Preferences dialog for snap grid, grid visibility, default
+  track color, interface accent color, recording input, and layout reset.
+- Render regression test proving a split clip's right half starts at the media
+  offset instead of replaying the beginning of the file.
+- Windows NSIS installer that bundles the offline Microsoft Edge WebView2
+  runtime and installs it silently when missing.
+- Deployment-only release workflow that builds and publishes the Windows
+  installer/portable build and Linux `.AppImage`/`.deb` packages on `v*` tags.
+
+### Fixed
+
+- Split and left-trimmed clips now render and draw the correct waveform region
+  from `offsetTicks`/`durationTicks`.
+- File/Edit menus no longer become unresponsive. Stale menu pointer listeners
+  are eliminated, the menus stay visible in narrow windows, and the topbar
+  responsive layout keeps them clickable.
+- Recording is finalized on transport stop/pause, seek attempts are blocked
+  while recording, and closing the app finalizes the WAV header.
+
 ## [0.1.0] - 2026-10-22
 
 ## Added

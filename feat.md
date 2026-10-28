@@ -1,6 +1,6 @@
 # Studio Clone - Feature and Development Tracker
 
-Last updated: 2026-10-22
+Last updated: 2026-10-28
 Current milestone: Milestone 1 preview / `0.1.0`
 Status legend: `[x]` implemented and verified, `[~]` implemented but not fully verified, `[!]` blocked, `[ ]` not implemented
 
@@ -26,6 +26,7 @@ the packaged desktop app.
 - [x] Real WASAPI output initialization
 - [x] Dynamic window sizing on small displays
 - [x] Portable Windows release build
+- [x] Windows NSIS installer with bundled offline WebView2 runtime
 - [x] Clean-close behavior in the packaged build
 - [x] Unsaved-project close guard with confirmation
 - [ ] Production installer signing
@@ -63,6 +64,7 @@ the packaged desktop app.
 - [x] Symphonia decoding for WAV/AIFF/FLAC/MP3/OGG/AAC/M4A family
 - [x] Waveform peak generation and arrangement rendering
 - [x] Move, trim, split, duplicate, and delete clips
+- [x] Split and left-trim respect the media offset in both playback and waveform rendering
 - [x] Clip gain and fade-in/fade-out envelopes
 - [x] Snap, zoom, scroll, loop region, and markers
 - [x] Multi-track MIDI part editing in arrangement
@@ -152,16 +154,17 @@ the packaged desktop app.
 ## Milestone 10 - Recording
 
 - [ ] Audio input monitoring
-- [ ] Audio recording
+- [x] Audio recording: real CPAL/WASAPI input is written to a float WAV and imported as an audio clip at the record start position. Verified end to end with a 16 kHz microphone (19.46 s capture, real waveform, playback, and split).
 - [ ] MIDI recording
 - [ ] Count-in
 - [~] Metronome setting is stored and click rendering is implemented in the engine; full UI audition still needs verification
 - [ ] Punch-in/punch-out
 - [ ] Loop recording
 - [ ] Takes and comping
-- [ ] Safe recording file creation / recovery
+- [x] Safe recording file creation: preallocated buffers, a dedicated writer thread, dropped-frame reporting, and WAV finalization on app shutdown
+- [~] Recording input device selection and record-arm workflow: verified with a 16 kHz microphone; a dedicated audio-interface pass is still recommended
 
-Recording controls remain visibly disabled or explicitly marked unavailable; no fake capture is presented.
+Audio recording is real; MIDI recording remains unavailable. No fake input meters or captured audio are presented.
 
 ## Milestone 11 - Export
 
@@ -178,7 +181,7 @@ Recording controls remain visibly disabled or explicitly marked unavailable; no 
 
 ## Milestone 12 - Quality Assurance
 
-- [x] 40 `studio-core` unit tests
+- [x] 43 `studio-core` unit tests
 - [x] Project serialization round-trip
 - [x] Future-schema rejection
 - [x] Media consolidation and missing-media tests
@@ -189,24 +192,29 @@ Recording controls remain visibly disabled or explicitly marked unavailable; no 
 - [x] TypeScript production build
 - [x] Rust workspace check
 - [x] Portable release executable build
+- [x] NSIS installer build verified, including the embedded offline WebView2 runtime
 - [x] Clean-close verification in packaged build
 - [~] Unsaved-close confirmation needs one more packaged-build test
+- [~] Installer install/uninstall on a clean Windows profile still needs a manual pass
 - [~] Long-session playback / memory soak test
 - [~] Audio-thread allocation review is implemented by design but not profiled
 - [~] Keyboard navigation and focus-order audit
 - [x] README and known limitations
-- [x] Release automation workflow for Windows and Linux
+- [x] Deployment-only release workflow for Windows and Linux, triggered by `v*` tags
+- [x] Windows installer bundles and silently installs the offline WebView2 runtime
 
 ## Current Implementation Summary
 
 Working end to end:
 
 - Native WASAPI playback of audio clips and synthesized MIDI parts
+- Real WASAPI input recording to WAV with automatic clip creation
 - Editable arrangement, piano roll, mixer strips, inserts, and master bus
 - Versioned project save/open, media consolidation, backups, autosave, and recovery
 - MIDI import/export and live MIDI input audition
+- Settings for snap, grid visibility, track/accent colors, recording input, and layout reset
 - Offline WAV export through the same graph as playback
-- Portable Windows executable and GitHub release automation
+- Windows NSIS installer with automatic WebView2 setup, portable Windows executable, and deployment-only GitHub release automation for Windows and Linux
 
 ## Known Bugs / UX Gaps
 
@@ -227,20 +235,24 @@ Working end to end:
 
 | Date | Command / Check | Environment | Result |
 | --- | --- | --- | --- |
-| 2026-10-22 | `npm run build` | Windows, Node 24.15.0 | Passed |
-| 2026-10-22 | `cargo check --workspace --all-targets` | Rust 1.99 GNU | Passed, no warnings |
-| 2026-10-22 | `cargo test -p studio-core` | Rust 1.99 GNU | Passed, 40 tests |
+| 2026-10-28 | `npm run build` | Windows, Node 24.15.0 | Passed |
+| 2026-10-28 | `cargo check --workspace --all-targets` | Rust 1.99 GNU | Passed |
+| 2026-10-28 | `cargo test -p studio-core` | Rust 1.99 GNU | Passed, 43 tests |
+| 2026-10-28 | Split/offset render regression | `studio-core` | Passed |
+| 2026-10-28 | Split/cutter UI waveform | Dev app, recorded clip | Passed; right half starts at the cut offset |
+| 2026-10-28 | File/Edit/Settings menu switching | Dev app | Passed |
 | 2026-10-22 | `npm run tauri:build:exe` | Rust 1.99 GNU | Passed, portable exe built |
 | 2026-10-22 | WASAPI playback smoke test | Real output device | Passed |
 | 2026-10-22 | Packaged clean close | Release exe | Passed after capability/guard fix |
 | 2026-10-22 | Unsaved close guard | Dev app | Dialog appears; full close regression pending |
-| 2026-10-22 | WAV export unit tests | `studio-core` | Passed |
+| 2026-10-28 | Audio-input recording | 16 kHz microphone | Passed; 19.46 s WAV, peak 0.1426, RMS 0.0098, clip + playback verified |
 
 ## Next Recommended Tasks
 
-1. Complete packaged-app regression of save/open/export/import and the unsaved close guard.
-2. Fix MixConsole small-height clipping and default lower-zone sizing.
-3. Synchronize arrangement scroll to transport stop/return-to-start.
-4. Finish export range wording and verify inclusive/exclusive semantics in the UI.
-5. Run a sustained playback and memory soak test.
-6. Verify physical MIDI input and Linux release runtime on real hardware.
+1. Verify audio recording with a dedicated audio interface/microphone; the webcam-microphone pass already covers record-arm, input selection, WAV finalization, import, and playback.
+2. Complete packaged-app regression of save/open/export/import and the unsaved close guard.
+3. Fix MixConsole small-height clipping and default lower-zone sizing.
+4. Synchronize arrangement scroll to transport stop/return-to-start.
+5. Finish export range wording and verify inclusive/exclusive semantics in the UI.
+6. Run a sustained playback and memory soak test.
+7. Verify physical MIDI input and Linux release runtime on real hardware.

@@ -46,7 +46,8 @@ export type ModalType =
   | "about"
   | "addTrack"
   | "project"
-  | "effect";
+  | "effect"
+  | "settings";
 
 export interface ModalState {
   type: ModalType;
@@ -62,6 +63,10 @@ export interface LayoutState {
   pianoZoom: number;
   tool: EditTool;
   snapTicks: number;
+  trackColor: string;
+  accentColor: string;
+  inputDevice: string;
+  showGrid: boolean;
 }
 
 export interface ToastMessage {
@@ -132,6 +137,18 @@ export const TRACK_COLORS = [
   "#ce4f7a",
   "#8a9a5b",
 ];
+
+export const ACCENT_COLORS = [
+  { name: "Steel Blue", value: "#4f8fce" },
+  { name: "Mint", value: "#5fbf9a" },
+  { name: "Amber", value: "#d3a43c" },
+  { name: "Coral", value: "#d0705f" },
+  { name: "Violet", value: "#9a7ad6" },
+  { name: "Cyan", value: "#4bb3c4" },
+];
+
+export const MIN_BOTTOM_HEIGHT = 168;
+export const DEFAULT_BOTTOM_HEIGHT = 286;
 
 export function createTrack(
   kind: TrackKind,
@@ -209,6 +226,10 @@ class Store {
         pianoZoom: 12,
         tool: "select",
         snapTicks: 240,
+        trackColor: TRACK_COLORS[0],
+        accentColor: ACCENT_COLORS[0].value,
+        inputDevice: "",
+        showGrid: true,
       },
       transport: null,
       devices: null,

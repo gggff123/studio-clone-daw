@@ -1,4 +1,5 @@
 use crate::audio::asset::{import_result, AssetCache, AudioImportResult};
+use crate::audio::capture::{AudioCapture, RecordingInfo, RecordingResult};
 use crate::audio::engine::{
     AudioDeviceList, DeviceSelection, TransportState,
 };
@@ -22,7 +23,9 @@ pub struct AppState {
     pub assets: Mutex<AssetCache>,
     pub last_project: Mutex<Option<Project>>,
     pub midi: Mutex<MidiInputManager>,
+    pub recording: Mutex<Option<AudioCapture>>,
     pub autosave_dir: PathBuf,
+    pub recordings_dir: PathBuf,
 }
 
 impl AppState {
@@ -35,7 +38,9 @@ impl AppState {
             assets: Mutex::new(AssetCache::default()),
             last_project: Mutex::new(None),
             midi: Mutex::new(MidiInputManager::default()),
+            recording: Mutex::new(None),
             autosave_dir: base.join("autosave"),
+            recordings_dir: base.join("recordings"),
         }
     }
 }
@@ -184,6 +189,47 @@ pub fn transport_stop(state: State<'_, SharedState>) -> Result<(), String> {
 pub fn transport_seek(state: State<'_, SharedState>, ticks: u64) -> Result<(), String> {
     lock_engine(&state)?.seek_ticks(ticks);
     Ok(())
+}
+
+#[tauri::command]
+pub fn start_audio_recording(
+    state: State<'_, SharedState>,
+    device: Option<String>,
+    start_ticks: u64,
+) -> Result<RecordingInfo, String> {
+    let mut slot = state
+        .recording
+        .lock()
+        .map_err(|_| "Recording state lock was poisoned.".to_string())?;
+    if slot.is_some() {
+        return Err("Recording is already active.".into());
+    }
+    let capture = AudioCapture::start(device.as_deref(), &state.recordings_dir)?;
+    let info = capture.info();
+    {
+        let engine = lock_engine(&state)?;
+        engine.seek_ticks(start_ticks);
+        engine.set_recording(true);
+        engine.play();
+    }
+    *slot = Some(capture);
+    Ok(info)
+}
+
+#[tauri::command]
+pub fn stop_audio_recording(state: State<'_, SharedState>) -> Result<RecordingResult, String> {
+    let capture = state
+        .recording
+        .lock()
+        .map_err(|_| "Recording state lock was poisoned.".to_string())?
+        .take()
+        .ok_or_else(|| "No audio recording is active.".to_string())?;
+    let result = capture.finish();
+    if let Ok(engine) = state.engine.lock() {
+        engine.stop();
+        engine.set_recording(false);
+    }
+    result
 }
 
 #[tauri::command]

@@ -1,6 +1,10 @@
 name: Release
 
+# Deployment-only workflow. It never runs on pull requests.
 on:
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
     inputs:
       tag:
@@ -20,10 +24,12 @@ env:
 
 jobs:
   windows:
-    name: Windows portable build
+    name: Windows installer and portable build
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - uses: actions/setup-node@v4
         with:
@@ -37,27 +43,36 @@ jobs:
           workspaces: src-tauri
 
       - run: npm ci
-      - run: npm run tauri:build:exe
 
-      - name: Package portable executable
+      - name: Build Windows installer and application
+        run: npm run tauri:build -- --bundles nsis
+
+      - name: Package Windows release assets
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path release | Out-Null
           $name = "Studio-Clone-$env:RELEASE_TAG-windows-x64"
           Copy-Item src-tauri/target/release/studio-clone.exe "release/$name.exe"
           Compress-Archive -Path "release/$name.exe", README.md -DestinationPath "release/$name.zip" -Force
+          $installer = Get-ChildItem -Path "src-tauri/target/release/bundle/nsis" -Filter "*-setup.exe" -File |
+            Select-Object -First 1
+          if (-not $installer) { throw "The NSIS installer was not produced." }
+          Copy-Item -LiteralPath $installer.FullName "release/$name-setup.exe"
+          Get-ChildItem release | Select-Object Name, Length
 
       - uses: actions/upload-artifact@v4
         with:
-          name: windows-portable
+          name: windows-packages
           path: release/*
           if-no-files-found: error
 
   linux:
-    name: Linux AppImage and deb
+    name: Linux AppImage and deb (deployment only)
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Install Tauri Linux dependencies
         run: |
@@ -76,14 +91,15 @@ jobs:
           workspaces: src-tauri
 
       - run: npm ci
-      - name: Build Linux bundles
+
+      - name: Build Linux AppImage and deb
         run: npm run tauri:build -- --bundles appimage,deb
 
       - name: Stage Linux artifacts
         run: |
           mkdir -p release
-          cp src-tauri/target/release/bundle/appimage/*.AppImage release/ || true
-          cp src-tauri/target/release/bundle/deb/*.deb release/ || true
+          cp src-tauri/target/release/bundle/appimage/*.AppImage release/
+          cp src-tauri/target/release/bundle/deb/*.deb release/
           ls -lah release
 
       - uses: actions/upload-artifact@v4
@@ -93,7 +109,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    name: Publish draft release
+    name: Publish release
     needs: [windows, linux]
     runs-on: ubuntu-latest
     steps:
@@ -108,7 +124,7 @@ jobs:
         run: ls -lah release
 
       - name: Create or update release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: Studio Clone ${{ env.RELEASE_TAG }}
@@ -120,16 +136,19 @@ jobs:
             Studio Clone desktop DAW preview.
 
             Windows
+            - Installer: `Studio-Clone-${{ env.RELEASE_TAG }}-windows-x64-setup.exe`
+              Installs the app and Microsoft Edge WebView2 Runtime automatically. The offline WebView2 runtime is bundled, so no separate download is required.
             - Portable executable: `Studio-Clone-${{ env.RELEASE_TAG }}-windows-x64.exe`
             - Portable ZIP with README: `Studio-Clone-${{ env.RELEASE_TAG }}-windows-x64.zip`
-            - Requires Microsoft Edge WebView2 Runtime.
+            - The portable build requires Microsoft Edge WebView2 Runtime to already be installed.
 
             Linux
             - AppImage: portable x86_64 build
             - deb: Debian/Ubuntu package
 
-            Known limitations: no audio/MIDI recording, no ASIO, sends are stored but not mixed,
-            constant tempo, and no plug-in hosting. See README.md for the full list.
+            Known limitations: no MIDI recording, no ASIO, input monitoring is not implemented,
+            sends are stored but not mixed, constant tempo, and no plug-in hosting.
+            See README.md for the full list.
 
             This is an original, Cubase-inspired project and is not affiliated with Steinberg.
           files: release/*

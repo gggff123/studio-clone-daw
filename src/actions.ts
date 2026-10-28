@@ -2,7 +2,9 @@ import { api, fileDialog, onExportProgress } from "./api";
 import {
   createProject,
   createTrack,
+  DEFAULT_BOTTOM_HEIGHT,
   defaultInstrument,
+  MIN_BOTTOM_HEIGHT,
   state,
   store,
   TRACK_COLORS,
@@ -261,11 +263,47 @@ export function startTransportPolling(): void {
 // Waveforms
 // ---------------------------------------------------------------------------
 
-const waveformCache = new Map<string, number[]>();
+interface WaveformEntry {
+  peaks: number[];
+  durationSeconds: number;
+}
+
+const waveformCache = new Map<string, WaveformEntry>();
 const waveformPending = new Map<string, Promise<void>>();
 
-export function waveformPeaks(path: string): number[] | null {
-  return waveformCache.get(path) ?? null;
+/**
+ * Return the peaks that belong to this clip. `offsetTicks` and
+ * `durationTicks` are essential after a split or a left-edge trim: without
+ * them the second half of a clip would draw the beginning of the media again.
+ */
+export function waveformPeaks(
+  path: string,
+  offsetTicks = 0,
+  durationTicks?: number,
+): number[] | null {
+  const entry = waveformCache.get(path);
+  if (!entry) return null;
+  const total = entry.peaks.length;
+  if (total === 0 || entry.durationSeconds <= 0) return [];
+  const secondsPerTick =
+    60 / Math.max(1, state.project.tempo) / Math.max(1, state.project.ppq);
+  const startSeconds = Math.max(0, offsetTicks) * secondsPerTick;
+  if (startSeconds >= entry.durationSeconds) return [];
+  const from = Math.min(
+    total - 1,
+    Math.max(0, Math.floor((startSeconds / entry.durationSeconds) * total)),
+  );
+  const count =
+    durationTicks === undefined
+      ? total - from
+      : Math.max(
+          1,
+          Math.ceil(
+            ((Math.max(1, durationTicks) * secondsPerTick) / entry.durationSeconds) *
+              total,
+          ),
+        );
+  return entry.peaks.slice(from, Math.min(total, from + count));
 }
 
 export async function ensureWaveform(path: string): Promise<void> {
@@ -275,10 +313,13 @@ export async function ensureWaveform(path: string): Promise<void> {
   const task = (async () => {
     try {
       const result = await api.getWaveform(path);
-      waveformCache.set(path, result.peaks);
+      waveformCache.set(path, {
+        peaks: result.peaks,
+        durationSeconds: result.durationSeconds,
+      });
       store.emit("waveform");
     } catch {
-      waveformCache.set(path, []);
+      waveformCache.set(path, { peaks: [], durationSeconds: 0 });
     } finally {
       waveformPending.delete(path);
     }
@@ -321,7 +362,42 @@ export function restoreLayout(): void {
     const raw = localStorage.getItem("studio-clone.layout");
     if (!raw) return;
     const saved = JSON.parse(raw) as Partial<typeof state.layout>;
-    Object.assign(state.layout, saved);
+    if (Number.isFinite(Number(saved.leftWidth))) {
+      state.layout.leftWidth = clamp(Number(saved.leftWidth), 228, 480);
+    }
+    if (Number.isFinite(Number(saved.bottomHeight))) {
+      state.layout.bottomHeight = Math.max(MIN_BOTTOM_HEIGHT, Number(saved.bottomHeight));
+    }
+    if (saved.leftTab === "inspector" || saved.leftTab === "media") {
+      state.layout.leftTab = saved.leftTab;
+    }
+    if (saved.bottomTab === "piano" || saved.bottomTab === "mixer" || saved.bottomTab === "none") {
+      state.layout.bottomTab = saved.bottomTab;
+    }
+    if (Number.isFinite(Number(saved.arrangeZoom))) {
+      state.layout.arrangeZoom = clamp(Math.round(Number(saved.arrangeZoom)), 18, 220);
+    }
+    if (Number.isFinite(Number(saved.pianoZoom))) {
+      state.layout.pianoZoom = clamp(Math.round(Number(saved.pianoZoom)), 7, 24);
+    }
+    if (saved.tool === "select" || saved.tool === "draw" || saved.tool === "split") {
+      state.layout.tool = saved.tool;
+    }
+    if (Number.isFinite(Number(saved.snapTicks))) {
+      state.layout.snapTicks = Math.max(0, Math.round(Number(saved.snapTicks)));
+    }
+    if (typeof saved.trackColor === "string" && TRACK_COLORS.includes(saved.trackColor)) {
+      state.layout.trackColor = saved.trackColor;
+    }
+    if (typeof saved.accentColor === "string" && /^#[0-9a-f]{6}$/i.test(saved.accentColor)) {
+      state.layout.accentColor = saved.accentColor;
+    }
+    if (typeof saved.inputDevice === "string") {
+      state.layout.inputDevice = saved.inputDevice;
+    }
+    if (typeof saved.showGrid === "boolean") {
+      state.layout.showGrid = saved.showGrid;
+    }
   } catch {
     // Ignore malformed layout state.
   }
@@ -332,7 +408,42 @@ export function setTool(tool: typeof state.layout.tool): void {
 }
 
 export function setSnap(ticks: number): void {
-  setLayout({ snapTicks: ticks });
+  setLayout({ snapTicks: Math.max(0, Math.round(ticks)) });
+}
+
+export function setDefaultTrackColor(color: string): void {
+  if (!TRACK_COLORS.includes(color)) return;
+  setLayout({ trackColor: color });
+}
+
+export function setAccentColor(color: string): void {
+  if (!/^#[0-9a-f]{6}$/i.test(color)) return;
+  setLayout({ accentColor: color });
+}
+
+export function setInputDevice(device: string): void {
+  setLayout({ inputDevice: device });
+}
+
+export function setShowGrid(showGrid: boolean): void {
+  setLayout({ showGrid });
+}
+
+export function resetLayout(): void {
+  setLayout({
+    leftWidth: 286,
+    bottomHeight: DEFAULT_BOTTOM_HEIGHT,
+    leftTab: "inspector",
+    bottomTab: "piano",
+    arrangeZoom: 64,
+    pianoZoom: 12,
+    tool: "select",
+    snapTicks: 240,
+    trackColor: TRACK_COLORS[0],
+    accentColor: "#4f8fce",
+    inputDevice: "",
+    showGrid: true,
+  });
 }
 
 export function setArrangeZoom(pxPerBeat: number): void {
@@ -499,6 +610,7 @@ async function confirmDiscard(): Promise<boolean> {
 }
 
 export async function newProject(): Promise<void> {
+  if (recordingTrackId) await finishAudioRecording(false);
   if (!(await confirmDiscard())) return;
   try {
     await api.transportStop();
@@ -511,6 +623,7 @@ export async function newProject(): Promise<void> {
 }
 
 export async function openProject(): Promise<void> {
+  if (recordingTrackId) await finishAudioRecording(false);
   if (!(await confirmDiscard())) return;
   const path = await fileDialog.openProject();
   if (!path) return;
@@ -518,6 +631,7 @@ export async function openProject(): Promise<void> {
 }
 
 export async function openProjectPath(path: string): Promise<void> {
+  if (recordingTrackId) await finishAudioRecording(false);
   setBusy("Opening project…");
   try {
     await api.transportStop().catch(() => undefined);
@@ -608,6 +722,7 @@ export async function refreshAutosaves(): Promise<void> {
 }
 
 export async function loadAutosave(path: string): Promise<void> {
+  if (recordingTrackId) await finishAudioRecording(false);
   if (!(await confirmDiscard())) return;
   setBusy("Recovering autosave…");
   try {
@@ -734,7 +849,11 @@ export function addTrack(kind: TrackKind, name?: string, color?: string): Track 
   if (kind === "marker" || kind === "folder") return null;
   let createdId: string | null = null;
   edit("project", () => {
-    const chosenColor = color ?? TRACK_COLORS[state.project.tracks.length % TRACK_COLORS.length];
+    const chosenColor =
+      color ??
+      (TRACK_COLORS.includes(state.layout.trackColor)
+        ? state.layout.trackColor
+        : TRACK_COLORS[state.project.tracks.length % TRACK_COLORS.length]);
     const track = createTrack(kind, name?.trim() || uniqueName(kind), chosenColor);
     if (kind === "midi") track.instrument = defaultInstrument();
     if (kind === "group" || kind === "fx") {
@@ -829,20 +948,24 @@ export function toggleSolo(trackId: string): void {
   updateTrack(trackId, { solo: !track.solo });
 }
 
+function setRecordArm(trackId: string, armed: boolean): void {
+  const track = findTrack(trackId);
+  if (!track) return;
+  if (track.kind !== "audio") {
+    toast("Recording currently targets audio tracks only.", "info");
+    return;
+  }
+  edit("project", () => {
+    for (const entry of state.project.tracks) {
+      if (entry.kind === "audio") entry.recordArm = entry.id === trackId && armed;
+    }
+  });
+}
+
 export function toggleRecordArm(trackId: string): void {
   const track = findTrack(trackId);
   if (!track) return;
-  updateTrack(trackId, { recordArm: !track.recordArm });
-  if (!track.recordArm) return;
-  toast(
-    "Record arm is stored in the project, but audio/MIDI recording is not implemented in this build.",
-    "info",
-  );
-  state.project.tracks
-    .filter((entry) => entry.id !== trackId && entry.recordArm)
-    .forEach((entry) => {
-      entry.recordArm = false;
-    });
+  setRecordArm(trackId, !track.recordArm);
 }
 
 export function setTrackHeight(trackId: string, height: number, transient = false): void {
@@ -1624,10 +1747,140 @@ function validateSelection(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Transport
+// Transport and audio recording
 // ---------------------------------------------------------------------------
 
+let recordingTrackId: string | null = null;
+let recordingStartTicks = 0;
+let recordingBusy = false;
+
+export function isAudioRecording(): boolean {
+  return recordingTrackId !== null;
+}
+
+function chooseRecordingTrack(): Track | null {
+  const armed = state.project.tracks.find(
+    (track) => track.kind === "audio" && track.recordArm,
+  );
+  if (armed) return armed;
+  const selected = selectedTrack();
+  if (selected?.kind === "audio") {
+    setRecordArm(selected.id, true);
+    return selected;
+  }
+  const existing = state.project.tracks.find((track) => track.kind === "audio");
+  if (existing) {
+    setRecordArm(existing.id, true);
+    toast(`Recording armed on ${existing.name}.`, "info");
+    return existing;
+  }
+  const created = addTrack("audio", "Recording");
+  if (created) setRecordArm(created.id, true);
+  return created;
+}
+
+function recordingInput(track: Track): string | null {
+  const inputs = state.devices?.inputs ?? [];
+  const preferred = state.layout.inputDevice.trim();
+  if (preferred && inputs.includes(preferred)) return preferred;
+  if (track.input && inputs.includes(track.input)) return track.input;
+  return inputs[0] ?? null;
+}
+
+async function finishAudioRecording(returnToStart: boolean): Promise<void> {
+  if (!recordingTrackId || recordingBusy) return;
+  const trackId = recordingTrackId;
+  const startTicks = recordingStartTicks;
+  recordingTrackId = null;
+  recordingBusy = true;
+  try {
+    const result = await api.stopAudioRecording();
+    if (returnToStart) await api.transportReturnToStart();
+    state.transport = await api.transportState();
+    store.emit("transport");
+
+    const imported = await api.importAudio(result.path);
+    imported.name = `Recording ${new Date().toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    })}`;
+    const clip = addAudioClip(trackId, imported, startTicks);
+    await syncEngine();
+    if (clip) void ensureWaveform(clip.mediaPath);
+
+    if (result.inputError) {
+      toast(`Recording finished with an input error: ${result.inputError}`, "error");
+    } else if (result.droppedFrames > 0) {
+      toast(
+        `Recording saved, but ${result.droppedFrames} frame(s) were dropped because the disk fell behind.`,
+        "error",
+      );
+    } else {
+      toast(
+        `Recorded ${result.durationSeconds.toFixed(2)}s to ${
+          findTrack(trackId)?.name ?? "the audio track"
+        }.`,
+        "success",
+      );
+    }
+  } catch (error) {
+    toast(`Could not finish recording: ${error}`, "error");
+  } finally {
+    recordingBusy = false;
+    store.emit("transport");
+  }
+}
+
+export async function toggleAudioRecording(): Promise<void> {
+  if (recordingBusy) return;
+  if (recordingTrackId) {
+    await finishAudioRecording(false);
+    return;
+  }
+
+  recordingBusy = true;
+  let started = false;
+  try {
+    const target = chooseRecordingTrack();
+    if (!target) {
+      toast("Add an audio track before recording.", "info");
+      return;
+    }
+    let input = recordingInput(target);
+    if (!input) {
+      await refreshDevices();
+      input = recordingInput(target);
+    }
+    if (!input) {
+      toast("No audio input was detected. Choose an input in Settings.", "error");
+      return;
+    }
+    const startTicks = state.transport?.positionTicks ?? 0;
+    await api.startAudioRecording(input, startTicks);
+    started = true;
+    recordingTrackId = target.id;
+    recordingStartTicks = startTicks;
+    state.transport = await api.transportState();
+    store.emit("transport");
+    toast(`Recording to ${target.name} via ${input}.`, "info");
+  } catch (error) {
+    if (started) {
+      await api.stopAudioRecording().catch(() => undefined);
+    }
+    recordingTrackId = null;
+    toast(`Could not start recording: ${error}`, "error");
+  } finally {
+    recordingBusy = false;
+    store.emit("transport");
+  }
+}
+
 export async function transportToggle(): Promise<void> {
+  if (recordingTrackId) {
+    await finishAudioRecording(false);
+    return;
+  }
   try {
     if (state.transport?.playing) await api.transportPause();
     else await api.transportPlay();
@@ -1639,6 +1892,7 @@ export async function transportToggle(): Promise<void> {
 }
 
 export async function transportPlay(): Promise<void> {
+  if (recordingTrackId) return;
   try {
     await api.transportPlay();
     state.transport = await api.transportState();
@@ -1649,6 +1903,10 @@ export async function transportPlay(): Promise<void> {
 }
 
 export async function transportStop(): Promise<void> {
+  if (recordingTrackId) {
+    await finishAudioRecording(true);
+    return;
+  }
   try {
     await api.transportStop();
     await api.transportReturnToStart();
@@ -1660,6 +1918,10 @@ export async function transportStop(): Promise<void> {
 }
 
 export async function transportPause(): Promise<void> {
+  if (recordingTrackId) {
+    await finishAudioRecording(false);
+    return;
+  }
   try {
     await api.transportPause();
     state.transport = await api.transportState();
@@ -1670,6 +1932,10 @@ export async function transportPause(): Promise<void> {
 }
 
 export async function seekTicks(ticks: number): Promise<void> {
+  if (recordingTrackId) {
+    toast("Stop recording before moving the playhead.", "info");
+    return;
+  }
   try {
     await api.transportSeek(Math.max(0, Math.round(ticks)));
     state.transport = await api.transportState();
@@ -1680,6 +1946,10 @@ export async function seekTicks(ticks: number): Promise<void> {
 }
 
 export async function returnToStart(): Promise<void> {
+  if (recordingTrackId) {
+    toast("Stop recording before moving the playhead.", "info");
+    return;
+  }
   try {
     await api.transportReturnToStart();
     state.transport = await api.transportState();

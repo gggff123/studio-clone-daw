@@ -964,6 +964,72 @@ mod tests {
     }
 
     #[test]
+    fn split_clip_offset_starts_at_the_split_frame() {
+        let dir = std::env::temp_dir().join(format!("studio-split-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let wav = dir.join("ramp.wav");
+        let spec = hound::WavSpec {
+            channels: 2,
+            sample_rate: 48_000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut writer = hound::WavWriter::create(&wav, spec).unwrap();
+        for i in 0..48_000 {
+            let value = ((i as f32 / 48_000.0) * i16::MAX as f32) as i16;
+            writer.write_sample(value).unwrap();
+            writer.write_sample(value).unwrap();
+        }
+        writer.finalize().unwrap();
+
+        let mut project = Project::new("Split");
+        project.tempo = 120.0;
+        project.ppq = 960;
+        let mut track = Track::new(TrackKind::Audio, "Audio", "#4f8fce");
+        // A split at tick 480 leaves the right half starting at source frame
+        // 12_000 (0.25 s at 120 BPM). If offset_ticks is ignored, the right
+        // clip replays frame 0 instead.
+        track.clips.push(AudioClip {
+            id: "left".into(),
+            media_path: wav.to_string_lossy().to_string(),
+            start_ticks: 0,
+            duration_ticks: 480,
+            offset_ticks: 0,
+            ..Default::default()
+        });
+        track.clips.push(AudioClip {
+            id: "right".into(),
+            media_path: wav.to_string_lossy().to_string(),
+            start_ticks: 480,
+            duration_ticks: 480,
+            offset_ticks: 480,
+            ..Default::default()
+        });
+        project.tracks.push(track);
+
+        let mut cache = AssetCache::default();
+        let built = build_render_graph(&project, 48_000, &mut cache, 1, None);
+        assert!(built.missing_media.is_empty());
+        let graph = built.graph;
+        let right = graph.tracks[0]
+            .clips
+            .iter()
+            .find(|clip| clip.id == "right")
+            .unwrap();
+        assert_eq!(right.start_frame, 12_000);
+        assert!((right.source_start_frame - 12_000.0).abs() < 1.0);
+
+        let mut runtime = RenderRuntime::new();
+        render_block(&graph, &mut runtime, 12_000, 480, true, 1);
+        assert!(
+            runtime.master_l[0] > 0.1,
+            "right half started at the beginning of the media (sample {})",
+            runtime.master_l[0]
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn audio_clip_plays_at_expected_time() {
         let dir = std::env::temp_dir().join(format!("studio-render-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();

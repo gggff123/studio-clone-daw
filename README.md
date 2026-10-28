@@ -4,13 +4,15 @@ A compact, Cubase Pro 12-inspired desktop DAW built with **Tauri 2**, **Rust**, 
 
 Studio Clone is a working desktop audio application, not a UI mock-up. The same Rust audio graph renders live playback and offline WAV mixdowns.
 
-> **Project status:** early `0.1.0` preview. Core arrangement, MIDI editing, mixing, project persistence, and WAV export work. Recording and ASIO are not implemented yet. See [Known limitations](#known-limitations).
+> **Project status:** early `0.1.0` preview. Core arrangement, MIDI editing, mixing, project persistence, WAV export, and audio-input recording work. MIDI recording and ASIO are not implemented yet. See [Known limitations](#known-limitations).
 
 ## Download
 
 Prebuilt Windows releases are available on the [Releases page](https://github.com/gggff123/studio-clone-daw/releases).
 
-Linux packages (`.AppImage` and `.deb`) are built by the release workflow on Ubuntu. They can also be built locally with the commands below.
+- **Windows installer:** installs Studio Clone and Microsoft Edge WebView2 automatically. The offline WebView2 runtime is bundled, so no separate download is required.
+- **Windows portable:** requires Microsoft Edge WebView2 Runtime to already be installed.
+- **Linux:** `.AppImage` and `.deb` packages are built by the deployment-only release workflow on Ubuntu. They can also be built locally with the commands below.
 
 ## Features
 
@@ -20,8 +22,9 @@ Linux packages (`.AppImage` and `.deb`) are built by the release workflow on Ubu
 - MIDI parts and audio clips with move, trim, split, duplicate, and delete
 - Clip gain and fade-in/fade-out envelopes
 - Timeline ruler, loop region, markers, zoom, snapping, and playhead
-- Waveform previews generated from decoded audio
+- Waveform previews generated from decoded audio, including correct split/trim offsets
 - Snapshot-based undo/redo with drag gesture coalescing
+- Settings menu and Preferences dialog for snap grid, grid visibility, default track color, UI accent color, recording input, and layout reset
 
 ### Piano roll and MIDI
 
@@ -43,9 +46,10 @@ Linux packages (`.AppImage` and `.deb`) are built by the release workflow on Ubu
 
 ### Audio engine
 
-- Native CPAL output using WASAPI on Windows
-- Device and sample-rate selection
+- Native CPAL input and output using WASAPI on Windows
+- Output device and sample-rate selection, plus recording input selection
 - Real-time transport with seek, pause, stop, and loop playback
+- Real CPAL/WASAPI audio-input recording to stereo float WAV, with record-arm targeting, automatic clip creation, and a non-blocking preallocated buffer/writer pipeline
 - Multi-track rendering with gain, pan, fades, inserts, bus routing, master limiter, and metering
 - Peak meters fed from the actual audio callback
 - WAV mixdown through the same render graph used for playback: 16-bit PCM, 24-bit PCM, or 32-bit float; mono or stereo; whole-project, cycle, or custom range
@@ -99,11 +103,14 @@ npm run tauri:build:exe
 # Output: src-tauri\target\release\studio-clone.exe
 ```
 
-Full Windows installer bundle (requires NSIS/Tauri bundling support):
+Full Windows installer bundle (NSIS; bundles the offline WebView2 runtime):
 
 ```powershell
-npm run tauri:build
+npm run tauri:build -- --bundles nsis
+# Output: src-tauri\target\release\bundle\nsis\*-setup.exe
 ```
+
+The installer uses per-machine mode, so Windows asks for Administrator approval, and it installs the bundled WebView2 runtime silently when it is missing.
 
 Frontend-only production build:
 
@@ -115,9 +122,9 @@ Linux build on Ubuntu 22.04+:
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev libasound2-dev patchelf
 npm ci
-npm run tauri:build
+npm run tauri:build -- --bundles appimage,deb
 # AppImage/deb output under src-tauri/target/release/bundle/
 ```
 
@@ -162,20 +169,21 @@ The audio callback never waits for the frontend, performs file I/O, or takes slo
 
 ## Known limitations
 
-- **Recording is not implemented.** Audio/MIDI record arm state is stored, but no audio or MIDI is captured.
-- **ASIO is not implemented.** Windows output uses CPAL/WASAPI. Buffer-size selection is not exposed.
+- **Audio recording is implemented; MIDI recording is not.** Audio is captured from the selected CPAL/WASAPI input to a stereo float WAV and placed on the armed audio track. Verified with a 16 kHz microphone; a dedicated audio-interface pass is still recommended.
+- **Input monitoring is not implemented.** Recorded input is not routed back to the output while recording.
+- **ASIO is not implemented.** Windows input/output uses CPAL/WASAPI. Buffer-size selection is not exposed.
 - **Sends are stored but not mixed.** Group/FX bus routing is functional; send-level mixing is not.
 - **Tempo is constant.** Tempo changes during playback and tempo maps are not supported yet.
 - **MIDI controller automation is not implemented.** Note velocity and instrument parameters are supported.
 - **Plug-in support is built-in only.** VST/AU hosting is not implemented.
 - **Linux builds are not locally verified here.** CI provides Ubuntu build jobs; package runtime behavior still needs testing on real Linux desktops.
 - **No physical audio/MIDI hardware verification** has been performed beyond the default WASAPI output device.
-- **The Windows release is a portable executable**, not a signed installer. Windows SmartScreen may warn about an unsigned binary.
+- **The Windows installer and portable executable are unsigned.** Windows SmartScreen may warn about unsigned binaries.
 - **No auto-update.**
 
 ## Release process
 
-See [`RELEASING.md`](RELEASING.md). Release builds are produced by GitHub Actions for Windows and Ubuntu. Tags follow semantic versioning (`v0.1.0`).
+See [`RELEASING.md`](RELEASING.md). The deployment-only release workflow builds and publishes Windows and Ubuntu packages when a `v*` tag is pushed or a release is started manually. Tags follow semantic versioning (`v0.1.0`).
 
 ## Legal
 
