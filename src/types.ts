@@ -226,6 +226,22 @@ export interface WaveformResult {
   durationSeconds: number;
 }
 
+export interface RecordingInfo {
+  path: string;
+  sampleRate: number;
+  channels: number;
+}
+
+export interface RecordingResult {
+  path: string;
+  sampleRate: number;
+  channels: number;
+  frames: number;
+  durationSeconds: number;
+  droppedFrames: number;
+  inputError: string | null;
+}
+
 export interface MissingMedia {
   trackId: string;
   clipId: string;

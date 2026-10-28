@@ -1,6 +1,12 @@
 import * as actions from "../actions";
 import { fileDialog } from "../api";
-import { state, store, type ModalType } from "../store";
+import {
+  ACCENT_COLORS,
+  state,
+  store,
+  TRACK_COLORS,
+  type ModalType,
+} from "../store";
 import type { AudioDeviceInfo, ExportResult, TrackKind } from "../types";
 import { h } from "../utils/dom";
 import {
@@ -27,6 +33,9 @@ export function mountModals(): void {
   });
   store.on("engine", () => {
     if (state.modal?.type === "audio" || state.modal?.type === "midi") renderModal(true);
+  });
+  store.on("layout", () => {
+    if (state.modal?.type === "settings") renderModal(true);
   });
   onUiEvent();
 }
@@ -131,6 +140,8 @@ function buildModal(type: ModalType, payload: unknown): HTMLElement | null {
       return buildProjectModal();
     case "effect":
       return buildEffectModal(payload as { host: string; effectId: string });
+    case "settings":
+      return buildSettingsModal();
     default:
       return null;
   }
@@ -213,8 +224,8 @@ function buildAudioModal(): HTMLElement {
       information(
         "Inputs",
         devices?.inputs.length
-          ? `${devices.inputs.join(", ")} — input monitoring and recording are not implemented.`
-          : "No audio inputs detected. Audio recording is not implemented in this build.",
+          ? `${devices.inputs.join(", ")}. Choose the recording input in Settings.`
+          : "No audio inputs detected. Choose an input in Settings before recording.",
       ),
       information(
         "Buffer size",
@@ -251,6 +262,169 @@ function rateOptions(device: AudioDeviceInfo | undefined, fallback: number): num
   if (rates.size === 0) rates.add(fallback);
   if (!rates.has(fallback)) rates.add(fallback);
   return [...rates].sort((a, b) => a - b);
+}
+
+// ---------------------------------------------------------------------------
+// Preferences
+// ---------------------------------------------------------------------------
+
+const TRACK_COLOR_LABELS = [
+  "Blue",
+  "Green",
+  "Gold",
+  "Orange",
+  "Violet",
+  "Teal",
+  "Pink",
+  "Olive",
+];
+
+function colorSwatchRow(
+  colors: Array<{ name: string; value: string }>,
+  selected: string,
+  onPick: (value: string) => void,
+): HTMLElement {
+  const row = h("div", { class: "color-swatches" });
+  for (const color of colors) {
+    const swatch = h("button", {
+      class: `color-swatch ${selected === color.value ? "is-selected" : ""}`.trim(),
+      type: "button",
+      title: color.name,
+      "aria-label": color.name,
+      onClick: () => onPick(color.value),
+    });
+    swatch.style.setProperty("--swatch", color.value);
+    row.append(swatch);
+  }
+  return row;
+}
+
+function buildSettingsModal(): HTMLElement {
+  const ppq = state.project.ppq;
+  const snapChoices = [
+    { value: "0", label: "Off" },
+    { value: String(Math.round(ppq * 4)), label: "1/1" },
+    { value: String(Math.round(ppq * 2)), label: "1/2" },
+    { value: String(ppq), label: "1/4" },
+    { value: String(ppq / 2), label: "1/8" },
+    { value: String(ppq / 4), label: "1/16" },
+    { value: String(ppq / 8), label: "1/32" },
+  ];
+  const inputs = state.devices?.inputs ?? [];
+  const inputOptions = [
+    { value: "", label: "System default input" },
+    ...inputs.map((entry) => ({ value: entry, label: entry })),
+  ];
+  if (state.layout.inputDevice && !inputs.includes(state.layout.inputDevice)) {
+    inputOptions.push({
+      value: state.layout.inputDevice,
+      label: `${state.layout.inputDevice} (unavailable)`,
+    });
+  }
+
+  const body = h(
+    "div",
+    { class: "form-grid settings-grid" },
+    h("div", { class: "settings-section-title", text: "Editing" }),
+    h(
+      "label",
+      { class: "form-field" },
+      h("span", { class: "form-label", text: "Snap grid" }),
+      selectBox(
+        snapChoices,
+        String(state.layout.snapTicks),
+        (value) => actions.setSnap(Number(value)),
+        "wide-select",
+      ),
+    ),
+    h(
+      "label",
+      { class: "form-check" },
+      h("input", {
+        type: "checkbox",
+        checked: state.layout.showGrid,
+        onChange: (event: Event) =>
+          actions.setShowGrid((event.target as HTMLInputElement).checked),
+      }),
+      h("span", { text: "Show bar and beat grid lines" }),
+    ),
+    h("div", { class: "settings-section-title", text: "Appearance" }),
+    h(
+      "div",
+      { class: "form-field" },
+      h("span", { class: "form-label", text: "Interface accent" }),
+      colorSwatchRow(
+        ACCENT_COLORS,
+        state.layout.accentColor,
+        (value) => actions.setAccentColor(value),
+      ),
+    ),
+    h(
+      "div",
+      { class: "form-field" },
+      h("span", { class: "form-label", text: "Default color for new tracks" }),
+      colorSwatchRow(
+        TRACK_COLORS.map((value, index) => ({
+          name: TRACK_COLOR_LABELS[index] ?? value,
+          value,
+        })),
+        state.layout.trackColor,
+        (value) => actions.setDefaultTrackColor(value),
+      ),
+    ),
+    h("div", { class: "settings-section-title", text: "Recording" }),
+    h(
+      "label",
+      { class: "form-field" },
+      h("span", { class: "form-label", text: "Audio input" }),
+      selectBox(
+        inputOptions,
+        state.layout.inputDevice,
+        (value) => actions.setInputDevice(value),
+        "wide-select",
+      ),
+    ),
+    information(
+      "How recording works",
+      "Arm an audio track, place the playhead, then press the red record button. The selected input is captured to a WAV file and a clip is created at the playhead when you stop.",
+    ),
+    h("div", { class: "settings-section-title", text: "Layout" }),
+    information(
+      "Workspace",
+      "Use Restore Defaults to reset panel sizes, zoom, snap, colors, and the visible grid.",
+    ),
+  );
+
+  const footer = h(
+    "div",
+    { class: "modal-actions" },
+    h("button", {
+      class: "text-btn",
+      type: "button",
+      text: "Refresh Devices",
+      onClick: () => void actions.refreshDevices(),
+    }),
+    h("button", {
+      class: "text-btn",
+      type: "button",
+      text: "Restore Defaults",
+      onClick: () => actions.resetLayout(),
+    }),
+    h("button", {
+      class: "text-btn primary",
+      type: "button",
+      text: "Done",
+      onClick: () => actions.closeModal(),
+    }),
+  );
+
+  return modalShell(
+    "Preferences",
+    "Snapping, colors, recording input, and workspace layout",
+    body,
+    footer,
+    true,
+  );
 }
 
 // ---------------------------------------------------------------------------

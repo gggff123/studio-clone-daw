@@ -1,6 +1,6 @@
 import * as actions from "../actions";
 import { api, fileDialog } from "../api";
-import { state, store } from "../store";
+import { ACCENT_COLORS, state, store, TRACK_COLORS } from "../store";
 import { h, isEditableTarget } from "../utils/dom";
 import {
   clamp,
@@ -28,6 +28,7 @@ interface ToolbarRefs {
   signature: HTMLButtonElement;
   play: HTMLButtonElement;
   stop: HTMLButtonElement;
+  record: HTMLButtonElement;
   loop: HTMLButtonElement;
   metro: HTMLButtonElement;
   undo: HTMLButtonElement;
@@ -243,6 +244,7 @@ function buildToolbar(): { element: HTMLElement; refs: ToolbarRefs } {
     menuButton("File", fileMenu),
     menuButton("Edit", editMenu),
     menuButton("Project", projectMenu),
+    menuButton("Settings", settingsMenu),
   );
 
   const toolGroup = h("div", { class: "tool-group", role: "group", "aria-label": "Edit tools" });
@@ -316,14 +318,15 @@ function buildToolbar(): { element: HTMLElement; refs: ToolbarRefs } {
     className: "transport-btn play-btn",
     size: 17,
   });
-  const record = iconButton("record", () => {
-      actions.toast("Recording is not implemented in this build.", "info");
-    }, {
-      title: "Record — not implemented",
+  const record = iconButton(
+    "record",
+    () => void actions.toggleAudioRecording(),
+    {
+      title: "Record audio to the armed track (R)",
       className: "transport-btn record-btn",
       size: 14,
-      disabled: true,
-    });
+    },
+  );
   const loop = iconButton("loop", () => void actions.toggleLoop(), {
     title: "Cycle / loop (L)",
     className: "transport-btn",
@@ -426,6 +429,7 @@ function buildToolbar(): { element: HTMLElement; refs: ToolbarRefs } {
       signature,
       play,
       stop,
+      record,
       loop,
       metro,
       undo,
@@ -513,6 +517,14 @@ function updateTransportChrome(): void {
   if (existing) existing.replaceWith(icon(iconName, 17));
   toolbar.play.classList.toggle("is-playing", playing);
   toolbar.play.title = playing ? "Pause (Space)" : "Play (Space)";
+  const recording = Boolean(transport?.recording) || actions.isAudioRecording();
+  toolbar.record.classList.toggle("is-active", recording);
+  toolbar.record.title = recording
+    ? "Stop recording and keep the take (R)"
+    : "Record audio to the armed track (R)";
+  toolbar.stop.title = recording
+    ? "Stop recording and return to start (F12)"
+    : "Stop and return to start (F12)";
   toolbar.loop.classList.toggle("is-active", state.project.loopRegion.enabled);
   toolbar.metro.classList.toggle("is-active", state.project.metronome);
   const master = clamp((peakToDb(transport?.masterPeak ?? 0) + 60) / 60, 0, 1);
@@ -653,15 +665,84 @@ function projectMenu(): MenuItem[] {
   ];
 }
 
+const TRACK_COLOR_NAMES = [
+  "Blue",
+  "Green",
+  "Gold",
+  "Orange",
+  "Violet",
+  "Teal",
+  "Pink",
+  "Olive",
+];
+
+function settingsMenu(): MenuItem[] {
+  const ppq = state.project.ppq;
+  const snapChoices = [
+    { label: "Off", value: 0 },
+    { label: "1/4", value: ppq },
+    { label: "1/8", value: ppq / 2 },
+    { label: "1/16", value: ppq / 4 },
+  ];
+  return [
+    { label: "Snap Grid", disabled: true },
+    ...snapChoices.map((choice) => ({
+      label: choice.label,
+      checked: state.layout.snapTicks === choice.value,
+      action: () => actions.setSnap(choice.value),
+    })),
+    {
+      label: "Show Grid",
+      checked: state.layout.showGrid,
+      action: () => actions.setShowGrid(!state.layout.showGrid),
+    },
+    { separator: true },
+    { label: "Default Track Color", disabled: true },
+    ...TRACK_COLORS.slice(0, 4).map((color, index) => ({
+      label: TRACK_COLOR_NAMES[index] ?? color,
+      checked: state.layout.trackColor === color,
+      action: () => actions.setDefaultTrackColor(color),
+    })),
+    { label: "More colors...", action: () => actions.openModal("settings") },
+    { separator: true },
+    { label: "Accent Color", disabled: true },
+    ...ACCENT_COLORS.slice(0, 3).map((accent) => ({
+      label: accent.name,
+      checked: state.layout.accentColor === accent.value,
+      action: () => actions.setAccentColor(accent.value),
+    })),
+    { label: "More accents...", action: () => actions.openModal("settings") },
+    { separator: true },
+    { label: "Preferences...", shortcut: "Ctrl+,", action: () => actions.openModal("settings") },
+    { label: "Reset Layout", action: () => actions.resetLayout() },
+  ];
+}
+
 // ---------------------------------------------------------------------------
 // Layout / resizers
 // ---------------------------------------------------------------------------
+
+function darkenHex(hex: string, factor = 0.68): string {
+  const match = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+  if (!match) return hex;
+  const channel = (value: string): string =>
+    Math.max(0, Math.min(255, Math.round(Number.parseInt(value, 16) * factor)))
+      .toString(16)
+      .padStart(2, "0");
+  return `#${channel(match[1])}${channel(match[2])}${channel(match[3])}`;
+}
 
 function applyLayout(): void {
   if (!refs) return;
   refs.leftPanel.style.width = `${state.layout.leftWidth}px`;
   refs.root.style.setProperty("--left-width", `${state.layout.leftWidth}px`);
   refs.root.style.setProperty("--bottom-height", `${state.layout.bottomHeight}px`);
+  document.documentElement.style.setProperty("--accent", state.layout.accentColor);
+  document.documentElement.style.setProperty(
+    "--accent-dim",
+    darkenHex(state.layout.accentColor),
+  );
+  document.body.classList.toggle("hide-grid", !state.layout.showGrid);
   const collapsed = state.layout.bottomTab === "none";
   refs.bottomPanel.classList.toggle("is-collapsed", collapsed);
   refs.bottomResizer.classList.toggle("is-hidden", collapsed);
@@ -899,6 +980,11 @@ function wireKeyboard(): void {
         actions.selectAllNotes();
         return;
       }
+      if (key === ",") {
+        event.preventDefault();
+        actions.openModal("settings");
+        return;
+      }
       if (event.key === "=" || event.key === "+") {
         event.preventDefault();
         actions.zoomIn();
@@ -956,6 +1042,11 @@ function wireKeyboard(): void {
     }
     if (event.key.toLowerCase() === "m") {
       actions.toggleMetronome();
+      return;
+    }
+    if (event.key.toLowerCase() === "r") {
+      event.preventDefault();
+      void actions.toggleAudioRecording();
       return;
     }
     if (event.key.toLowerCase() === "q") {

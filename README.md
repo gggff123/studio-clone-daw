@@ -4,7 +4,7 @@ A compact, Cubase Pro 12-inspired desktop DAW built with **Tauri 2**, **Rust**, 
 
 Studio Clone is a working desktop audio application, not a UI mock-up. The same Rust audio graph renders live playback and offline WAV mixdowns.
 
-> **Project status:** early `0.1.0` preview. Core arrangement, MIDI editing, mixing, project persistence, and WAV export work. Recording and ASIO are not implemented yet. See [Known limitations](#known-limitations).
+> **Project status:** early `0.1.0` preview. Core arrangement, MIDI editing, mixing, project persistence, WAV export, and audio-input recording work. MIDI recording and ASIO are not implemented yet. See [Known limitations](#known-limitations).
 
 ## Download
 
@@ -20,8 +20,9 @@ Linux packages (`.AppImage` and `.deb`) are built by the release workflow on Ubu
 - MIDI parts and audio clips with move, trim, split, duplicate, and delete
 - Clip gain and fade-in/fade-out envelopes
 - Timeline ruler, loop region, markers, zoom, snapping, and playhead
-- Waveform previews generated from decoded audio
+- Waveform previews generated from decoded audio, including correct split/trim offsets
 - Snapshot-based undo/redo with drag gesture coalescing
+- Settings menu and Preferences dialog for snap grid, grid visibility, default track color, UI accent color, recording input, and layout reset
 
 ### Piano roll and MIDI
 
@@ -43,9 +44,10 @@ Linux packages (`.AppImage` and `.deb`) are built by the release workflow on Ubu
 
 ### Audio engine
 
-- Native CPAL output using WASAPI on Windows
-- Device and sample-rate selection
+- Native CPAL input and output using WASAPI on Windows
+- Output device and sample-rate selection, plus recording input selection
 - Real-time transport with seek, pause, stop, and loop playback
+- Real CPAL/WASAPI audio-input recording to stereo float WAV, with record-arm targeting, automatic clip creation, and a non-blocking preallocated buffer/writer pipeline
 - Multi-track rendering with gain, pan, fades, inserts, bus routing, master limiter, and metering
 - Peak meters fed from the actual audio callback
 - WAV mixdown through the same render graph used for playback: 16-bit PCM, 24-bit PCM, or 32-bit float; mono or stereo; whole-project, cycle, or custom range
@@ -162,8 +164,9 @@ The audio callback never waits for the frontend, performs file I/O, or takes slo
 
 ## Known limitations
 
-- **Recording is not implemented.** Audio/MIDI record arm state is stored, but no audio or MIDI is captured.
-- **ASIO is not implemented.** Windows output uses CPAL/WASAPI. Buffer-size selection is not exposed.
+- **Audio recording is implemented; MIDI recording is not.** Audio is captured from the selected CPAL/WASAPI input to a stereo float WAV and placed on the armed audio track. Verified with a 16 kHz microphone; a dedicated audio-interface pass is still recommended.
+- **Input monitoring is not implemented.** Recorded input is not routed back to the output while recording.
+- **ASIO is not implemented.** Windows input/output uses CPAL/WASAPI. Buffer-size selection is not exposed.
 - **Sends are stored but not mixed.** Group/FX bus routing is functional; send-level mixing is not.
 - **Tempo is constant.** Tempo changes during playback and tempo maps are not supported yet.
 - **MIDI controller automation is not implemented.** Note velocity and instrument parameters are supported.

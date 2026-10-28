@@ -18,6 +18,8 @@ import type {
   MidiImportResult,
   OpenResult,
   Project,
+  RecordingInfo,
+  RecordingResult,
   SaveResult,
   TransportState,
   WaveformResult,
@@ -41,6 +43,9 @@ export const api = {
   transportPlay: () => call<void>("transport_play"),
   transportPause: () => call<void>("transport_pause"),
   transportStop: () => call<void>("transport_stop"),
+  startAudioRecording: (device: string | null, startTicks: number) =>
+    call<RecordingInfo>("start_audio_recording", { device, startTicks }),
+  stopAudioRecording: () => call<RecordingResult>("stop_audio_recording"),
   transportSeek: (ticks: number) => call<void>("transport_seek", { ticks }),
   transportReturnToStart: () => call<void>("transport_return_to_start"),
   transportSetLoop: (enabled: boolean, startTicks: number, endTicks: number) =>

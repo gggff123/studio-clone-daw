@@ -12,13 +12,25 @@ export interface MenuItem {
 }
 
 let activeMenu: HTMLElement | null = null;
-let cleanup: (() => void) | null = null;
+let activeAnchor: HTMLElement | null = null;
+let activeOpenedByHover = false;
 
+/**
+ * The menu uses one set of permanent global listeners. The previous version
+ * attached listeners from a zero-delay timer, so a menu that closed quickly
+ * could leave a stale pointerdown handler behind. After enough menu opens,
+ * those stale handlers would close a new menu before its item could be
+ * clicked, which made File/Edit look permanently disabled.
+ */
 export function closeMenu(): void {
   activeMenu?.remove();
   activeMenu = null;
-  cleanup?.();
-  cleanup = null;
+  if (activeAnchor) {
+    activeAnchor.classList.remove("is-open");
+    activeAnchor.setAttribute("aria-expanded", "false");
+  }
+  activeAnchor = null;
+  activeOpenedByHover = false;
 }
 
 function buildMenu(items: MenuItem[]): HTMLElement {
@@ -65,30 +77,21 @@ function placeMenu(menu: HTMLElement, x: number, y: number, minWidth = 220): voi
 export function openMenuAt(x: number, y: number, items: MenuItem[]): void {
   closeMenu();
   placeMenu(buildMenu(items), x, y);
-  const onPointer = (event: PointerEvent): void => {
-    if (activeMenu && !activeMenu.contains(event.target as Node)) closeMenu();
-  };
-  const onKey = (event: KeyboardEvent): void => {
-    if (event.key === "Escape") closeMenu();
-  };
-  window.setTimeout(() => document.addEventListener("pointerdown", onPointer, true), 0);
-  document.addEventListener("keydown", onKey, true);
-  window.addEventListener("blur", closeMenu, { once: true });
-  cleanup = () => {
-    document.removeEventListener("pointerdown", onPointer, true);
-    document.removeEventListener("keydown", onKey, true);
-  };
 }
 
-export function openMenuFor(anchor: HTMLElement, items: MenuItem[], minWidth = 220): void {
+export function openMenuFor(
+  anchor: HTMLElement,
+  items: MenuItem[],
+  minWidth = 220,
+  byHover = false,
+): void {
+  closeMenu();
   const rect = anchor.getBoundingClientRect();
-  openMenuAt(rect.left, rect.bottom + 3, items);
+  placeMenu(buildMenu(items), rect.left, rect.bottom + 3, minWidth);
+  activeAnchor = anchor;
+  activeOpenedByHover = byHover;
   anchor.classList.add("is-open");
-  const originalCleanup = cleanup;
-  cleanup = () => {
-    anchor.classList.remove("is-open");
-    originalCleanup?.();
-  };
+  anchor.setAttribute("aria-expanded", "true");
 }
 
 export function openContextMenu(event: MouseEvent, items: MenuItem[]): void {
@@ -96,6 +99,63 @@ export function openContextMenu(event: MouseEvent, items: MenuItem[]): void {
   event.stopPropagation();
   openMenuAt(event.clientX, event.clientY, items);
 }
+
+function focusMenuItem(direction: 1 | -1): void {
+  if (!activeMenu) return;
+  const items = [...activeMenu.querySelectorAll<HTMLButtonElement>(".menu-item:not(:disabled)")];
+  if (items.length === 0) return;
+  const current = items.indexOf(document.activeElement as HTMLButtonElement);
+  const next =
+    current === -1
+      ? direction === 1
+        ? 0
+        : items.length - 1
+      : (current + direction + items.length) % items.length;
+  items[next].focus();
+}
+
+document.addEventListener(
+  "pointerdown",
+  (event) => {
+    if (!activeMenu) return;
+    const target = event.target as Node;
+    if (activeMenu.contains(target)) return;
+    // Let the anchor's click handler toggle the menu closed.
+    if (activeAnchor?.contains(target)) return;
+    closeMenu();
+  },
+  true,
+);
+
+document.addEventListener(
+  "keydown",
+  (event) => {
+    if (!activeMenu) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      const anchor = activeAnchor;
+      closeMenu();
+      anchor?.focus();
+      return;
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      event.stopPropagation();
+      focusMenuItem(1);
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      event.stopPropagation();
+      focusMenuItem(-1);
+    }
+  },
+  true,
+);
+
+window.addEventListener("blur", closeMenu);
+window.addEventListener("resize", closeMenu);
 
 export function menuButton(
   label: string,
@@ -106,10 +166,14 @@ export function menuButton(
     class: `menu-btn ${className}`.trim(),
     type: "button",
     text: label,
+    "aria-haspopup": "menu",
+    "aria-expanded": "false",
   });
   button.addEventListener("click", (event) => {
     event.stopPropagation();
-    if (button.classList.contains("is-open")) {
+    // A hover switch opens the menu before the click arrives. In that case
+    // keep the menu open instead of treating the click as a toggle-off.
+    if (activeAnchor === button && !activeOpenedByHover) {
       closeMenu();
       return;
     }
@@ -117,10 +181,8 @@ export function menuButton(
   });
   button.addEventListener("pointerenter", () => {
     // Once a menu is open, hovering a sibling menu button switches to it.
-    if (!activeMenu) return;
-    const rect = button.getBoundingClientRect();
-    openMenuAt(rect.left, rect.bottom + 3, items());
-    button.classList.add("is-open");
+    if (!activeMenu || activeAnchor === button) return;
+    openMenuFor(button, items(), 220, true);
   });
   return button;
 }

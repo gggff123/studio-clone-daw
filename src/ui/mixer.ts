@@ -176,7 +176,7 @@ function buildStrip(track: Track): HTMLElement {
     class: `mini-btn rec ${track.recordArm ? "is-active" : ""}`,
     type: "button",
     text: "R",
-    title: "Record enable",
+    title: "Record-arm this audio track",
     onClick: (event: MouseEvent) => {
       event.stopPropagation();
       actions.toggleRecordArm(track.id);
