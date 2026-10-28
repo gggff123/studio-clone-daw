@@ -17,6 +17,10 @@ versioning for application releases; the project-file schema has its own version
   track color, interface accent color, recording input, and layout reset.
 - Render regression test proving a split clip's right half starts at the media
   offset instead of replaying the beginning of the file.
+- Windows NSIS installer that bundles the offline Microsoft Edge WebView2
+  runtime and installs it silently when missing.
+- Deployment-only release workflow that builds and publishes the Windows
+  installer/portable build and Linux `.AppImage`/`.deb` packages on `v*` tags.
 
 ### Fixed
 

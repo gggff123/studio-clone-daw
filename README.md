@@ -10,7 +10,9 @@ Studio Clone is a working desktop audio application, not a UI mock-up. The same 
 
 Prebuilt Windows releases are available on the [Releases page](https://github.com/gggff123/studio-clone-daw/releases).
 
-Linux packages (`.AppImage` and `.deb`) are built by the release workflow on Ubuntu. They can also be built locally with the commands below.
+- **Windows installer:** installs Studio Clone and Microsoft Edge WebView2 automatically. The offline WebView2 runtime is bundled, so no separate download is required.
+- **Windows portable:** requires Microsoft Edge WebView2 Runtime to already be installed.
+- **Linux:** `.AppImage` and `.deb` packages are built by the deployment-only release workflow on Ubuntu. They can also be built locally with the commands below.
 
 ## Features
 

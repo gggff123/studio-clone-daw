@@ -26,6 +26,7 @@ the packaged desktop app.
 - [x] Real WASAPI output initialization
 - [x] Dynamic window sizing on small displays
 - [x] Portable Windows release build
+- [x] Windows NSIS installer with bundled offline WebView2 runtime
 - [x] Clean-close behavior in the packaged build
 - [x] Unsaved-project close guard with confirmation
 - [ ] Production installer signing
@@ -191,13 +192,16 @@ Audio recording is real; MIDI recording remains unavailable. No fake input meter
 - [x] TypeScript production build
 - [x] Rust workspace check
 - [x] Portable release executable build
+- [x] NSIS installer build verified, including the embedded offline WebView2 runtime
 - [x] Clean-close verification in packaged build
 - [~] Unsaved-close confirmation needs one more packaged-build test
+- [~] Installer install/uninstall on a clean Windows profile still needs a manual pass
 - [~] Long-session playback / memory soak test
 - [~] Audio-thread allocation review is implemented by design but not profiled
 - [~] Keyboard navigation and focus-order audit
 - [x] README and known limitations
-- [x] Release automation workflow for Windows and Linux
+- [x] Deployment-only release workflow for Windows and Linux, triggered by `v*` tags
+- [x] Windows installer bundles and silently installs the offline WebView2 runtime
 
 ## Current Implementation Summary
 
@@ -210,7 +214,7 @@ Working end to end:
 - MIDI import/export and live MIDI input audition
 - Settings for snap, grid visibility, track/accent colors, recording input, and layout reset
 - Offline WAV export through the same graph as playback
-- Portable Windows executable and GitHub release automation
+- Windows NSIS installer with automatic WebView2 setup, portable Windows executable, and deployment-only GitHub release automation for Windows and Linux
 
 ## Known Bugs / UX Gaps
 
