@@ -103,11 +103,14 @@ npm run tauri:build:exe
 # Output: src-tauri\target\release\studio-clone.exe
 ```
 
-Full Windows installer bundle (requires NSIS/Tauri bundling support):
+Full Windows installer bundle (NSIS; bundles the offline WebView2 runtime):
 
 ```powershell
-npm run tauri:build
+npm run tauri:build -- --bundles nsis
+# Output: src-tauri\target\release\bundle\nsis\*-setup.exe
 ```
+
+The installer uses per-machine mode, so Windows asks for Administrator approval, and it installs the bundled WebView2 runtime silently when it is missing.
 
 Frontend-only production build:
 
@@ -119,9 +122,9 @@ Linux build on Ubuntu 22.04+:
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev libasound2-dev patchelf
 npm ci
-npm run tauri:build
+npm run tauri:build -- --bundles appimage,deb
 # AppImage/deb output under src-tauri/target/release/bundle/
 ```
 
@@ -175,12 +178,12 @@ The audio callback never waits for the frontend, performs file I/O, or takes slo
 - **Plug-in support is built-in only.** VST/AU hosting is not implemented.
 - **Linux builds are not locally verified here.** CI provides Ubuntu build jobs; package runtime behavior still needs testing on real Linux desktops.
 - **No physical audio/MIDI hardware verification** has been performed beyond the default WASAPI output device.
-- **The Windows release is a portable executable**, not a signed installer. Windows SmartScreen may warn about an unsigned binary.
+- **The Windows installer and portable executable are unsigned.** Windows SmartScreen may warn about unsigned binaries.
 - **No auto-update.**
 
 ## Release process
 
-See [`RELEASING.md`](RELEASING.md). Release builds are produced by GitHub Actions for Windows and Ubuntu. Tags follow semantic versioning (`v0.1.0`).
+See [`RELEASING.md`](RELEASING.md). The deployment-only release workflow builds and publishes Windows and Ubuntu packages when a `v*` tag is pushed or a release is started manually. Tags follow semantic versioning (`v0.1.0`).
 
 ## Legal
 
