@@ -4,6 +4,9 @@ use crate::audio::engine::{
     AudioDeviceList, DeviceSelection, TransportState,
 };
 use crate::audio::export::{export_project_wav, ExportOptions, ExportResult};
+use crate::audio::plugins::{
+    scan_plugins as scan_vst3_plugins, PluginDescriptor, PluginManager, PluginParameter,
+};
 use crate::midi::devices::{
     list_midi_devices, MidiConnectionStatus, MidiDeviceList, MidiInputManager,
 };
@@ -24,6 +27,7 @@ pub struct AppState {
     pub last_project: Mutex<Option<Project>>,
     pub midi: Mutex<MidiInputManager>,
     pub recording: Mutex<Option<AudioCapture>>,
+    pub plugins: Mutex<PluginManager>,
     pub autosave_dir: PathBuf,
     pub recordings_dir: PathBuf,
 }
@@ -39,6 +43,7 @@ impl AppState {
             last_project: Mutex::new(None),
             midi: Mutex::new(MidiInputManager::default()),
             recording: Mutex::new(None),
+            plugins: Mutex::new(PluginManager::new(48_000)),
             autosave_dir: base.join("autosave"),
             recordings_dir: base.join("recordings"),
         }
@@ -54,6 +59,48 @@ fn lock_engine(
         .engine
         .lock()
         .map_err(|_| "The audio engine lock was poisoned.".to_string())
+}
+
+fn lock_plugins(state: &AppState) -> Result<std::sync::MutexGuard<'_, PluginManager>, String> {
+    state
+        .plugins
+        .lock()
+        .map_err(|_| "The plug-in manager lock was poisoned.".to_string())
+}
+
+/// Find an insert in the last project snapshot sent by the frontend.
+fn find_project_insert(
+    state: &AppState,
+    insert_id: &str,
+) -> Result<crate::project::InsertEffect, String> {
+    let project = state
+        .last_project
+        .lock()
+        .map_err(|_| "Project state lock failed.".to_string())?;
+    let project = project
+        .as_ref()
+        .ok_or_else(|| "No project is loaded.".to_string())?;
+    for track in &project.tracks {
+        if let Some(insert) = track.inserts.iter().find(|insert| insert.id == insert_id) {
+            return Ok(insert.clone());
+        }
+    }
+    if let Some(insert) = project
+        .master
+        .inserts
+        .iter()
+        .find(|insert| insert.id == insert_id)
+    {
+        return Ok(insert.clone());
+    }
+    Err("The plug-in insert no longer exists.".to_string())
+}
+
+fn ensure_plugin_loaded(state: &AppState, insert_id: &str) -> Result<(), String> {
+    let insert = find_project_insert(state, insert_id)?;
+    let mut manager = lock_plugins(state)?;
+    manager.ensure_plugin(&insert)?;
+    Ok(())
 }
 
 #[derive(Debug, Serialize)]
@@ -94,12 +141,15 @@ pub struct AudioOutputResult {
 
 #[tauri::command]
 pub fn set_audio_output(
+    app: AppHandle,
     state: State<'_, SharedState>,
     name: Option<String>,
     sample_rate: Option<u32>,
 ) -> Result<AudioOutputResult, String> {
     let mut engine = lock_engine(&state)?;
+    let previous_rate = engine.sample_rate();
     let selection = engine.set_output_device(name, sample_rate)?;
+    let rate_changed = previous_rate != engine.sample_rate();
     let project = state
         .last_project
         .lock()
@@ -110,10 +160,20 @@ pub fn set_audio_output(
             .assets
             .lock()
             .map_err(|_| "Audio asset cache lock failed.".to_string())?;
-        engine.load_project(&project, &mut assets).missing_media
+        let mut plugins = lock_plugins(&state)?;
+        plugins.set_sample_rate(engine.sample_rate());
+        engine
+            .load_project(&project, &mut assets, &mut plugins)
+            .missing_media
     } else {
         Vec::new()
     };
+    drop(engine);
+    if rate_changed {
+        // Instances were rebuilt for the new sample rate; editors still point at
+        // the retired instances.
+        let _ = app.run_on_main_thread(crate::plugin_host::close_all);
+    }
     Ok(AudioOutputResult {
         selection,
         missing_media,
@@ -127,33 +187,49 @@ pub struct EngineLoadResult {
     pub output_device: Option<String>,
     pub track_count: usize,
     pub missing_media: Vec<String>,
+    pub plugin_errors: Vec<String>,
     pub ready: bool,
 }
 
 #[tauri::command]
 pub async fn set_engine_project(
+    app: AppHandle,
     state: State<'_, SharedState>,
     project: Project,
 ) -> Result<EngineLoadResult, String> {
     let state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
+        let previous_id = state
+            .last_project
+            .lock()
+            .map_err(|_| "Project state lock failed.".to_string())?
+            .as_ref()
+            .map(|project| project.id.clone());
+        let project_changed = previous_id.as_deref() != Some(project.id.as_str());
         let mut engine = lock_engine(&state)?;
         let mut assets = state
             .assets
             .lock()
             .map_err(|_| "Audio asset cache lock failed.".to_string())?;
-        let built = engine.load_project(&project, &mut assets);
+        let mut plugins = lock_plugins(&state)?;
+        let built = engine.load_project(&project, &mut assets, &mut plugins);
         let state_now = engine.state();
         let track_count = built.track_count;
         *state
             .last_project
             .lock()
             .map_err(|_| "Project state lock failed.".to_string())? = Some(project);
+        drop(plugins);
+        if project_changed {
+            // Editor windows belong to the old project's instances.
+            let _ = app.run_on_main_thread(crate::plugin_host::close_all);
+        }
         Ok(EngineLoadResult {
             sample_rate: state_now.sample_rate,
             output_device: state_now.output_device,
             track_count,
             missing_media: built.missing_media,
+            plugin_errors: built.plugin_errors,
             ready: state_now.engine_ready,
         })
     })
@@ -341,12 +417,15 @@ pub async fn save_project_file(
 ) -> Result<SaveResult, String> {
     let state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
+        let mut project = project;
+        if let Ok(manager) = state.plugins.lock() {
+            manager.capture_states(&mut project);
+        }
         let result = save_project(Path::new(&path), &project)?;
         *state
             .last_project
             .lock()
-            .map_err(|_| "Project state lock failed.".to_string())? =
-            Some(result.project.clone());
+            .map_err(|_| "Project state lock failed.".to_string())? = Some(result.project.clone());
         Ok(result)
     })
     .await
@@ -364,8 +443,7 @@ pub async fn open_project_file(
         *state
             .last_project
             .lock()
-            .map_err(|_| "Project state lock failed.".to_string())? =
-            Some(result.project.clone());
+            .map_err(|_| "Project state lock failed.".to_string())? = Some(result.project.clone());
         Ok(result)
     })
     .await
@@ -383,6 +461,10 @@ pub fn autosave_project_file(
     state: State<'_, SharedState>,
     project: Project,
 ) -> Result<AutosaveResult, String> {
+    let mut project = project;
+    if let Ok(manager) = state.plugins.lock() {
+        manager.capture_states(&mut project);
+    }
     let path = autosave_project(&state.autosave_dir, &project)?;
     Ok(AutosaveResult { path })
 }
@@ -418,8 +500,7 @@ pub async fn load_autosave_file(
         *state
             .last_project
             .lock()
-            .map_err(|_| "Project state lock failed.".to_string())? =
-            Some(result.project.clone());
+            .map_err(|_| "Project state lock failed.".to_string())? = Some(result.project.clone());
         Ok(result)
     })
     .await
@@ -443,6 +524,10 @@ pub async fn export_wav(
 ) -> Result<ExportResult, String> {
     let state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
+        let mut project = project;
+        if let Ok(manager) = state.plugins.lock() {
+            manager.capture_states(&mut project);
+        }
         let mut assets = state
             .assets
             .lock()
@@ -661,6 +746,79 @@ pub fn set_window_size(window: tauri::Window, size: WindowSize) -> Result<(), St
 #[tauri::command]
 pub fn quit_app(app: AppHandle) {
     app.exit(0);
+}
+
+// ---------------------------------------------------------------------------
+// VST3 plug-ins
+// ---------------------------------------------------------------------------
+
+/// Scan the standard VST3 folders plus optional user paths.
+#[tauri::command]
+pub async fn scan_plugins(paths: Option<Vec<String>>) -> Result<Vec<PluginDescriptor>, String> {
+    let paths = paths.unwrap_or_default();
+    tauri::async_runtime::spawn_blocking(move || Ok(scan_vst3_plugins(&paths)))
+        .await
+        .map_err(|e| format!("Plug-in scan task failed: {e}"))?
+}
+
+#[tauri::command]
+pub fn plugin_parameters(
+    state: State<'_, SharedState>,
+    insert_id: String,
+) -> Result<Vec<PluginParameter>, String> {
+    ensure_plugin_loaded(&state, &insert_id)?;
+    let manager = lock_plugins(&state)?;
+    manager.parameters(&insert_id)
+}
+
+#[tauri::command]
+pub fn set_plugin_parameter(
+    state: State<'_, SharedState>,
+    insert_id: String,
+    parameter_id: u32,
+    value: f64,
+) -> Result<(), String> {
+    ensure_plugin_loaded(&state, &insert_id)?;
+    let manager = lock_plugins(&state)?;
+    manager.set_parameter(&insert_id, parameter_id, value)
+}
+
+/// Open the plug-in's native editor. `PluginWindow` is not `Send`, so the work
+/// is scheduled on the Tauri main thread and the command waits for its result.
+#[tauri::command]
+pub async fn open_plugin_editor(
+    app: AppHandle,
+    state: State<'_, SharedState>,
+    insert_id: String,
+) -> Result<(), String> {
+    let state = state.inner().clone();
+    ensure_plugin_loaded(&state, &insert_id)?;
+    let (tx, rx) = std::sync::mpsc::channel();
+    let thread_state = state.clone();
+    let thread_id = insert_id.clone();
+    app.run_on_main_thread(move || {
+        let result = crate::plugin_host::open(&thread_state, &thread_id);
+        let _ = tx.send(result);
+    })
+    .map_err(|err| format!("Cannot schedule the plug-in editor: {err}"))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        rx.recv_timeout(std::time::Duration::from_secs(15))
+            .map_err(|_| "The plug-in editor did not open in time.".to_string())?
+    })
+    .await
+    .map_err(|err| format!("Plug-in editor task failed: {err}"))?
+}
+
+#[tauri::command]
+pub fn close_plugin_editor(app: AppHandle, insert_id: String) -> Result<(), String> {
+    app.run_on_main_thread(move || crate::plugin_host::close(&insert_id))
+        .map_err(|err| format!("Cannot close the plug-in editor: {err}"))
+}
+
+#[tauri::command]
+pub fn close_all_plugin_editors(app: AppHandle) -> Result<(), String> {
+    app.run_on_main_thread(crate::plugin_host::close_all)
+        .map_err(|err| format!("Cannot close the plug-in editors: {err}"))
 }
 
 #[allow(dead_code)]

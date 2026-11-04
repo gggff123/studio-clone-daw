@@ -155,6 +155,15 @@
   opacity: 0.52;
 }
 
+.insert-row.is-plugin {
+  border-color: #3f4b66;
+  color: #b9c9ea;
+}
+
+.insert-row.is-plugin .insert-name {
+  font-weight: 600;
+}
+
 .insert-state {
   width: 5px;
   height: 5px;

@@ -21,9 +21,16 @@ versioning for application releases; the project-file schema has its own version
   runtime and installs it silently when missing.
 - Deployment-only release workflow that builds and publishes the Windows
   installer/portable build and Linux `.AppImage`/`.deb` packages on `v*` tags.
+- In-process VST3 effect hosting on track and master inserts: plug-in browser
+  with folder scanning, native editor windows, a parameter fallback, state
+  persistence in the project file, and the same plug-in chain during WAV export.
 
 ### Fixed
 
+- Global keyboard shortcuts stopped working after clicking a fader, tempo field,
+  or other focusable control. Shortcut handling now runs in the window capture
+  phase, text fields keep their editing keys, and file/zoom shortcuts still work
+  while typing.
 - Split and left-trimmed clips now render and draw the correct waveform region
   from `offsetTicks`/`durationTicks`.
 - File/Edit menus no longer become unresponsive. Stale menu pointer listeners

@@ -22,3 +22,5 @@ midly = "0.5.3"
 arc-swap = "1.9.3"
 crossbeam-channel = "0.5"
 dirs = "6"
+base64 = "0.22"
+vst3-host = { version = "0.10.0", default-features = false }

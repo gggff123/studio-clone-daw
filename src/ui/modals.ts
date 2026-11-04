@@ -7,7 +7,13 @@ import {
   TRACK_COLORS,
   type ModalType,
 } from "../store";
-import type { AudioDeviceInfo, ExportResult, TrackKind } from "../types";
+import type {
+  AudioDeviceInfo,
+  ExportResult,
+  PluginDescriptor,
+  PluginParameter,
+  TrackKind,
+} from "../types";
 import { h } from "../utils/dom";
 import {
   barTicks,
@@ -140,6 +146,10 @@ function buildModal(type: ModalType, payload: unknown): HTMLElement | null {
       return buildProjectModal();
     case "effect":
       return buildEffectModal(payload as { host: string; effectId: string });
+    case "plugins":
+      return buildPluginBrowserModal(payload as { host: string });
+    case "plugin":
+      return buildPluginModal(payload as { host: string; effectId: string });
     case "settings":
       return buildSettingsModal();
     default:
@@ -1172,6 +1182,303 @@ function buildEffectModal(payload: { host: string; effectId: string }): HTMLElem
     h("button", { class: "text-btn primary", type: "button", text: "Done", onClick: () => actions.closeModal() }),
   );
   return modalShell(def.name, "Insert effect editor", body, footer);
+}
+
+// ---------------------------------------------------------------------------
+// VST3 plug-ins
+// ---------------------------------------------------------------------------
+
+function buildPluginBrowserModal(payload: { host: string }): HTMLElement {
+  const hostName =
+    payload.host === "master"
+      ? "Master"
+      : state.project.tracks.find((track) => track.id === payload.host)?.name ?? "Track";
+
+  let descriptors: PluginDescriptor[] = [];
+  let scanning = true;
+  let error = "";
+  let query = "";
+  const extraPaths: string[] = [];
+
+  const list = h("div", { class: "plugin-list" });
+  const status = h("div", { class: "plugin-status", text: "Scanning VST3 folders…" });
+  const search = h("input", {
+    class: "name-input plugin-search",
+    type: "search",
+    placeholder: "Filter by name, vendor or category",
+    spellcheck: false,
+    onInput: () => {
+      query = search.value.trim().toLowerCase();
+      renderList();
+    },
+  });
+
+  const renderList = (): void => {
+    list.replaceChildren();
+    if (scanning) {
+      status.textContent = "Scanning VST3 folders…";
+      status.classList.remove("is-error");
+      return;
+    }
+    if (error) {
+      status.textContent = error;
+      status.classList.add("is-error");
+      return;
+    }
+    const matches = descriptors.filter((entry) => {
+      if (!query) return true;
+      return `${entry.name} ${entry.vendor} ${entry.category} ${entry.subCategories.join(" ")}`
+        .toLowerCase()
+        .includes(query);
+    });
+    status.classList.remove("is-error");
+    status.textContent =
+      matches.length === 0
+        ? descriptors.length === 0
+          ? "No VST3 effects were found in the standard folders."
+          : "No plug-ins match this filter."
+        : `${matches.length} plug-in${matches.length === 1 ? "" : "s"} · ${hostName} insert`;
+    if (matches.length === 0) return;
+    for (const descriptor of matches) {
+      const supported = descriptor.isEffect && !descriptor.isInstrument;
+      const row = h(
+        "div",
+        { class: `plugin-row ${supported ? "" : "is-disabled"}`.trim() },
+        h(
+          "div",
+          { class: "plugin-row-main" },
+          h("div", { class: "plugin-row-name", text: descriptor.name || "VST3 Plug-in" }),
+          h("div", {
+            class: "plugin-row-meta",
+            text: [descriptor.vendor, descriptor.category || descriptor.subCategories.join(", ")]
+              .filter(Boolean)
+              .join(" · "),
+          }),
+          h("div", { class: "plugin-row-path", text: descriptor.path, title: descriptor.path }),
+        ),
+        supported
+          ? h("button", {
+              class: "text-btn primary",
+              type: "button",
+              text: "Insert",
+              onClick: () => void actions.addPluginInsert(payload.host, descriptor),
+            })
+          : h("span", {
+              class: "plugin-badge",
+              text: descriptor.isInstrument ? "Instrument – not supported yet" : "Not an effect",
+            }),
+      );
+      list.append(row);
+    }
+  };
+
+  const scan = async (): Promise<void> => {
+    scanning = true;
+    error = "";
+    renderList();
+    try {
+      descriptors = await actions.scanPlugins(extraPaths.length > 0 ? extraPaths : undefined);
+    } catch (scanError) {
+      error = `Plug-in scan failed: ${scanError}`;
+      descriptors = [];
+    } finally {
+      scanning = false;
+      renderList();
+    }
+  };
+
+  const body = h(
+    "div",
+    { class: "form-grid plugin-browser" },
+    h("div", {
+      class: "hint-block",
+      text: "VST3 effects run in-process on the audio thread. Instrument plug-ins are not hosted yet. Hostile or crashing plug-ins can take the app down, so scan only trusted vendors.",
+    }),
+    h("div", { class: "plugin-toolbar" }, search),
+    status,
+    list,
+  );
+
+  const footer = h(
+    "div",
+    { class: "modal-actions" },
+    h("button", {
+      class: "text-btn",
+      type: "button",
+      text: "Add Folder…",
+      onClick: () => {
+        void fileDialog.pickFolder("Add a VST3 folder").then((folder) => {
+          if (!folder) return;
+          if (!extraPaths.includes(folder)) extraPaths.push(folder);
+          void scan();
+        });
+      },
+    }),
+    h("button", {
+      class: "text-btn",
+      type: "button",
+      text: "Rescan",
+      onClick: () => void scan(),
+    }),
+    h("button", {
+      class: "text-btn primary",
+      type: "button",
+      text: "Close",
+      onClick: () => actions.closeModal(),
+    }),
+  );
+
+  void scan();
+  return modalShell("VST3 Plug-ins", "Choose an effect for this insert slot", body, footer, true);
+}
+
+function buildPluginModal(payload: { host: string; effectId: string }): HTMLElement | null {
+  const insert = actions.findInsert(payload.host, payload.effectId);
+  if (!insert || insert.kind !== "plugin") {
+    window.setTimeout(() => actions.closeModal(), 0);
+    return null;
+  }
+  const reference = insert.plugin;
+  const name = reference?.name?.trim() || "VST3 Plug-in";
+  const hostName =
+    payload.host === "master"
+      ? "Master"
+      : state.project.tracks.find((track) => track.id === payload.host)?.name ?? "Track";
+
+  const paramsHost = h("div", { class: "plugin-params" });
+  const status = h("div", { class: "plugin-status", text: "Loading parameters…" });
+
+  const renderParameters = (parameters: PluginParameter[]): void => {
+    paramsHost.replaceChildren();
+    if (parameters.length === 0) {
+      status.classList.remove("is-error");
+      status.textContent = "This plug-in exposes no parameters. Use its native editor.";
+      return;
+    }
+    status.classList.remove("is-error");
+    status.textContent = `${parameters.length} parameter${parameters.length === 1 ? "" : "s"} · values are saved with the project`;
+    for (const parameter of parameters) {
+      const stepped = parameter.stepCount > 0 ? 1 / parameter.stepCount : 0.001;
+      const control = rangeControl({
+        value: clamp(parameter.value, 0, 1),
+        min: 0,
+        max: 1,
+        step: stepped,
+        label: parameter.isBypass ? `${parameter.name} (bypass)` : parameter.name,
+        format: (value) => formatPluginValue(parameter, value),
+        className: "effect-param plugin-param",
+        onPreview: (value) =>
+          void actions.setPluginParameter(payload.effectId, parameter.id, value),
+        onEnd: () => actions.notePluginEdited(),
+      });
+      if (parameter.isReadOnly) control.input.disabled = true;
+      paramsHost.append(control.element);
+    }
+  };
+
+  const loadParameters = async (): Promise<void> => {
+    status.classList.remove("is-error");
+    status.textContent = "Loading parameters…";
+    try {
+      const parameters = await actions.loadPluginParameters(payload.effectId);
+      if (state.modal?.type !== "plugin") return;
+      renderParameters(parameters);
+    } catch (error) {
+      if (state.modal?.type !== "plugin") return;
+      paramsHost.replaceChildren();
+      status.classList.add("is-error");
+      status.textContent = `Cannot read parameters: ${error}`;
+    }
+  };
+
+  const body = h(
+    "div",
+    { class: "form-grid" },
+    h(
+      "div",
+      { class: "effect-head plugin-head" },
+      h("div", { class: "effect-title", text: name }),
+      h("div", {
+        class: "effect-host",
+        text: [reference?.vendor, hostName].filter(Boolean).join(" · "),
+      }),
+      reference?.path
+        ? h("div", { class: "plugin-row-path", text: reference.path, title: reference.path })
+        : null,
+    ),
+    h(
+      "div",
+      { class: "effect-toolbar plugin-toolbar" },
+      h("button", {
+        class: "text-btn primary",
+        type: "button",
+        text: "Open Plug-in Editor",
+        onClick: () => void actions.openPluginEditor(payload.effectId),
+      }),
+      h("button", {
+        class: "text-btn",
+        type: "button",
+        text: "Refresh Parameters",
+        onClick: () => void loadParameters(),
+      }),
+      h("button", {
+        class: `text-btn ${insert.enabled ? "active" : ""}`.trim(),
+        type: "button",
+        text: insert.enabled ? "Bypass" : "Enable",
+        onClick: () => actions.toggleInsert(payload.host, payload.effectId),
+      }),
+      h("button", {
+        class: "text-btn",
+        type: "button",
+        text: "Move Up",
+        onClick: () => actions.moveInsert(payload.host, payload.effectId, -1),
+      }),
+      h("button", {
+        class: "text-btn",
+        type: "button",
+        text: "Move Down",
+        onClick: () => actions.moveInsert(payload.host, payload.effectId, 1),
+      }),
+    ),
+    status,
+    paramsHost,
+    h("div", {
+      class: "hint-block",
+      text: "The native editor and these fallback controls drive the same live instance. Plug-in state is captured before saving, autosaving and exporting. Instruments are not hosted yet.",
+    }),
+  );
+
+  const footer = h(
+    "div",
+    { class: "modal-actions" },
+    h("button", {
+      class: "text-btn danger",
+      type: "button",
+      text: "Remove Insert",
+      onClick: () => {
+        actions.removeInsert(payload.host, payload.effectId);
+        actions.closeModal();
+      },
+    }),
+    h("button", {
+      class: "text-btn primary",
+      type: "button",
+      text: "Done",
+      onClick: () => actions.closeModal(),
+    }),
+  );
+
+  void loadParameters();
+  return modalShell(name, "VST3 insert · native editor and parameters", body, footer, true);
+}
+
+function formatPluginValue(parameter: PluginParameter, value: number): string {
+  if (parameter.stepCount > 0) {
+    const step = Math.round(value * parameter.stepCount);
+    return `${step}/${parameter.stepCount}`;
+  }
+  const percent = (value * 100).toFixed(value < 0.1 ? 1 : 0);
+  return parameter.unit ? `${percent} ${parameter.unit}` : `${percent}%`;
 }
 
 function information(label: string, value: string): HTMLElement {

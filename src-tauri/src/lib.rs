@@ -4,6 +4,7 @@
 pub use studio_core::{audio, instruments, midi, project};
 
 pub mod commands;
+pub mod plugin_host;
 
 use std::sync::Arc;
 
@@ -26,6 +27,20 @@ pub fn run() {
                     let _ = window.center();
                 }
             }
+
+            // Native plug-in editors need their platform message loop pumped
+            // from the main thread. A lightweight tick keeps them responsive
+            // without blocking the Tauri event loop.
+            let handle = app.handle().clone();
+            std::thread::spawn(move || loop {
+                std::thread::sleep(std::time::Duration::from_millis(30));
+                if handle
+                    .run_on_main_thread(plugin_host::service)
+                    .is_err()
+                {
+                    break;
+                }
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -66,7 +81,13 @@ pub fn run() {
             commands::set_window_title,
             commands::app_data_dir,
             commands::set_window_size,
-            commands::quit_app
+            commands::quit_app,
+            commands::scan_plugins,
+            commands::plugin_parameters,
+            commands::set_plugin_parameter,
+            commands::open_plugin_editor,
+            commands::close_plugin_editor,
+            commands::close_all_plugin_editors
         ])
         .run(tauri::generate_context!())
         .expect("error while running Studio Clone");

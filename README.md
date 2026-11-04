@@ -41,6 +41,7 @@ Prebuilt Windows releases are available on the [Releases page](https://github.co
 - Master strip with limiter
 - Group/FX bus routing with cycle prevention
 - Insert effects: gain, stereo pan, 3-band EQ, parametric EQ, compressor, limiter, noise gate, delay, reverb, and chorus
+- Third-party VST3 effect inserts on tracks and the master bus, with native editors, a parameter fallback, per-insert state persistence, and offline-export support
 - Built-in polyphonic dual-oscillator synthesizer with filter, ADSR, and LFO controls
 - Instrument presets and parameter persistence
 
@@ -175,7 +176,7 @@ The audio callback never waits for the frontend, performs file I/O, or takes slo
 - **Sends are stored but not mixed.** Group/FX bus routing is functional; send-level mixing is not.
 - **Tempo is constant.** Tempo changes during playback and tempo maps are not supported yet.
 - **MIDI controller automation is not implemented.** Note velocity and instrument parameters are supported.
-- **Plug-in support is built-in only.** VST/AU hosting is not implemented.
+- **VST3 effect hosting is in-process.** Track and master inserts can load third-party VST3 effects from the standard Windows folders (plus folders added in the plug-in browser). Instrument plug-ins, side-chain routing, plug-in automation lanes, and AU hosting are not implemented. Plug-ins run inside the app process with no sandbox, so a crashing or hostile plug-in can terminate Studio Clone. The native editor path is provided by `vst3-host` but has not been runtime-verified in this build because no VST3 plug-ins were installed on the test machine.
 - **Linux builds are not locally verified here.** CI provides Ubuntu build jobs; package runtime behavior still needs testing on real Linux desktops.
 - **No physical audio/MIDI hardware verification** has been performed beyond the default WASAPI output device.
 - **The Windows installer and portable executable are unsigned.** Windows SmartScreen may warn about unsigned binaries.
@@ -189,4 +190,4 @@ See [`RELEASING.md`](RELEASING.md). The deployment-only release workflow builds 
 
 Studio Clone is an independent project and is **not affiliated with or endorsed by Steinberg Media Technologies GmbH**. “Cubase” is a trademark of its respective owner and is referenced only to describe the interface inspiration.
 
-No proprietary Steinberg code, binaries, presets, or other assets are included in this repository.
+No proprietary Steinberg code, binaries, presets, or other assets are included in this repository. VST3 hosting uses the third-party open-source `vst3-host` crate; users install and supply their own VST3 plug-ins, which Studio Clone does not ship.

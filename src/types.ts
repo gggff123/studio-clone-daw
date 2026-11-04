@@ -17,7 +17,8 @@ export type EffectKind =
   | "noise-gate"
   | "delay"
   | "reverb"
-  | "chorus";
+  | "chorus"
+  | "plugin";
 
 export interface TimeSignature {
   numerator: number;
@@ -96,11 +97,46 @@ export interface InstrumentSettings {
   polyphony: number;
 }
 
+export interface PluginRef {
+  path: string;
+  uid: string;
+  name: string;
+  vendor: string;
+  category: string;
+}
+
 export interface InsertEffect {
   id: string;
   kind: EffectKind;
   enabled: boolean;
   params: Record<string, number>;
+  plugin?: PluginRef;
+  /** Opaque VST3 component state, base64 encoded. */
+  state?: string;
+}
+
+export interface PluginDescriptor {
+  path: string;
+  uid: string;
+  name: string;
+  vendor: string;
+  category: string;
+  subCategories: string[];
+  isEffect: boolean;
+  isInstrument: boolean;
+}
+
+export interface PluginParameter {
+  id: number;
+  name: string;
+  value: number;
+  default: number;
+  unit: string;
+  display: string;
+  stepCount: number;
+  canAutomate: boolean;
+  isReadOnly: boolean;
+  isBypass: boolean;
 }
 
 export interface Track {
@@ -205,6 +241,7 @@ export interface EngineLoadResult {
   outputDevice: string | null;
   trackCount: number;
   missingMedia: string[];
+  pluginErrors: string[];
   ready: boolean;
 }
 
@@ -285,6 +322,7 @@ export interface ExportResult {
   frames: number;
   durationSeconds: number;
   peak: number;
+  pluginErrors: string[];
 }
 
 export interface ExportProgress {

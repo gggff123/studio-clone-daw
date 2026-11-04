@@ -15,9 +15,9 @@ import {
   selectBox,
   sectionHeader,
 } from "./controls";
-import { EFFECT_MENU, effectDef } from "./effects";
+import { EFFECT_MENU, effectDef, insertDescription, insertDisplayName } from "./effects";
 import { icon } from "./icons";
-import { openMenuFor } from "./menu";
+import { openMenuFor, type MenuItem } from "./menu";
 
 let host: HTMLElement;
 
@@ -313,14 +313,7 @@ function buildInsertsSection(hostId: string | "master", inserts: InsertEffect[])
       class: "add-insert-btn",
       type: "button",
       onClick: () => {
-        openMenuFor(
-          add,
-          EFFECT_MENU.map((entry) => ({
-            label: entry.name,
-            action: () => actions.addInsert(hostId, entry.kind),
-          })),
-          190,
-        );
+        openMenuFor(add, insertMenu(hostId), 190);
       },
     },
     icon("plus", 11),
@@ -335,6 +328,20 @@ function buildInsertsSection(hostId: string | "master", inserts: InsertEffect[])
   );
 }
 
+function insertMenu(hostId: string | "master"): MenuItem[] {
+  return [
+    ...EFFECT_MENU.map((entry) => ({
+      label: entry.name,
+      action: () => actions.addInsert(hostId, entry.kind),
+    })),
+    { separator: true },
+    {
+      label: "VST3 Plug-ins…",
+      action: () => actions.openModal("plugins", { host: hostId }),
+    },
+  ];
+}
+
 function buildInsertRow(
   hostId: string | "master",
   insert: InsertEffect,
@@ -342,20 +349,22 @@ function buildInsertRow(
   total: number,
 ): HTMLElement {
   const def = effectDef(insert.kind);
+  const plugin = insert.kind === "plugin";
   return h(
     "div",
-    { class: `insert-inspector-row ${insert.enabled ? "" : "is-bypassed"}`.trim() },
+    { class: `insert-inspector-row ${insert.enabled ? "" : "is-bypassed"} ${plugin ? "is-plugin" : ""}`.trim() },
     h("span", { class: "insert-slot-number", text: String(index + 1) }),
     h(
       "button",
       {
         class: "insert-inspector-name",
         type: "button",
-        title: def.description,
-        onClick: () => actions.openModal("effect", { host: hostId, effectId: insert.id }),
+        title: plugin ? insertDescription(insert) : def.description,
+        onClick: () =>
+          actions.openModal(plugin ? "plugin" : "effect", { host: hostId, effectId: insert.id }),
       },
-      icon("sliders", 11),
-      h("span", { text: def.name }),
+      icon(plugin ? "plug" : "sliders", 11),
+      h("span", { text: plugin ? insertDisplayName(insert) : def.name }),
     ),
     h(
       "button",

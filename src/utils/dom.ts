@@ -74,14 +74,31 @@ export function closestTrack(element: Element | null): HTMLElement | null {
   return element?.closest<HTMLElement>("[data-track-id]") ?? null;
 }
 
+/**
+ * True only for controls that accept typed text. Buttons, selects, checkboxes,
+ * range inputs and other non-text widgets deliberately stay "shortcut
+ * transparent", otherwise clicking a fader or a bypass button could silence
+ * every global shortcut until the user clicked elsewhere.
+ */
 export function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
-  return (
-    target instanceof HTMLInputElement ||
-    target instanceof HTMLTextAreaElement ||
-    target instanceof HTMLSelectElement ||
-    target.isContentEditable
-  );
+  if (target.isContentEditable || target.closest('[contenteditable="true"]')) return true;
+  if (target instanceof HTMLTextAreaElement) return true;
+  if (target instanceof HTMLInputElement) {
+    return ![
+      "button",
+      "checkbox",
+      "color",
+      "file",
+      "hidden",
+      "image",
+      "radio",
+      "range",
+      "reset",
+      "submit",
+    ].includes(target.type);
+  }
+  return false;
 }
 
 export function pointerX(event: PointerEvent): number {

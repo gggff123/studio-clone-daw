@@ -6,10 +6,11 @@
 
 use crate::audio::asset::{AssetCache, AudioAsset};
 use crate::audio::effects::{soft_clip, EffectState};
+use crate::audio::plugins::{PluginHandle, PluginManager, PluginScratch};
 use crate::instruments::synthesizer::Synth;
 use crate::project::time::{db_to_gain, ticks_to_frames, ticks_to_seconds};
-use crate::project::{InsertEffect, InstrumentSettings, Project, TrackKind};
-use std::collections::HashMap;
+use crate::project::{EffectKind, InsertEffect, InstrumentSettings, Project, TrackKind};
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
@@ -41,6 +42,14 @@ pub struct RenderClip {
     pub fade_out_frames: u64,
 }
 
+/// One insert on the render graph: the serializable effect plus, for VST3
+/// inserts, a handle to the live instance owned by [`PluginManager`].
+#[derive(Debug)]
+pub struct RenderInsert {
+    pub effect: InsertEffect,
+    pub plugin: Option<PluginHandle>,
+}
+
 #[derive(Debug)]
 pub struct RenderTrack {
     pub id: String,
@@ -55,7 +64,7 @@ pub struct RenderTrack {
     pub clips: Vec<RenderClip>,
     pub midi_events: Vec<MidiEvent>,
     pub instrument: Option<InstrumentSettings>,
-    pub inserts: Vec<InsertEffect>,
+    pub inserts: Vec<RenderInsert>,
 }
 
 #[derive(Debug)]
@@ -63,7 +72,7 @@ pub struct MasterRender {
     pub gain: f32,
     pub pan_l: f32,
     pub pan_r: f32,
-    pub inserts: Vec<InsertEffect>,
+    pub inserts: Vec<RenderInsert>,
     pub limiter: bool,
 }
 
@@ -120,6 +129,7 @@ pub struct RenderGraph {
 pub struct GraphBuildResult {
     pub graph: RenderGraph,
     pub missing_media: Vec<String>,
+    pub plugin_errors: Vec<String>,
 }
 
 fn pan_gains(pan: f32) -> (f32, f32) {
@@ -129,12 +139,45 @@ fn pan_gains(pan: f32) -> (f32, f32) {
     (left, right)
 }
 
-fn track_inserts(track: &crate::project::Track) -> Vec<InsertEffect> {
-    track
-        .inserts
+/// Convert the enabled inserts of one track/master bus into runtime entries.
+/// A plug-in that fails to load is reported and left as a bypass insert, so the
+/// rest of the mix still plays.
+fn build_inserts(
+    inserts: &[InsertEffect],
+    plugins: Option<&mut PluginManager>,
+    plugin_errors: &mut Vec<String>,
+) -> Vec<RenderInsert> {
+    let mut plugins = plugins;
+    inserts
         .iter()
-        .filter(|fx| fx.enabled)
-        .cloned()
+        .filter(|insert| insert.enabled)
+        .map(|insert| {
+            let plugin = if insert.kind == EffectKind::Plugin {
+                match plugins.as_deref_mut() {
+                    Some(manager) => match manager.ensure_plugin(insert) {
+                        Ok(handle) => Some(handle),
+                        Err(err) => {
+                            plugin_errors.push(format!(
+                                "{}: {err}",
+                                insert
+                                    .plugin
+                                    .as_ref()
+                                    .map(|reference| reference.display_name())
+                                    .unwrap_or("VST3 plug-in")
+                            ));
+                            None
+                        }
+                    },
+                    None => None,
+                }
+            } else {
+                None
+            };
+            RenderInsert {
+                effect: insert.clone(),
+                plugin,
+            }
+        })
         .collect()
 }
 
@@ -144,12 +187,25 @@ pub fn build_render_graph(
     cache: &mut AssetCache,
     generation: u64,
     existing_meters: Option<Arc<MeterBank>>,
+    plugins: Option<&mut PluginManager>,
 ) -> GraphBuildResult {
     let sample_rate = if sample_rate == 0 { 48_000 } else { sample_rate };
     let tempo = project.tempo.clamp(20.0, 300.0);
     let ppq = project.ppq.max(1);
     let any_solo = project.any_solo();
     let mut missing_media = Vec::new();
+    let mut plugin_errors = Vec::new();
+    let mut plugins = plugins;
+    // Keep instances for bypassed inserts as well: toggling bypass must not
+    // reload the plug-in (which would discard its state, tails and editor).
+    let active_plugins: HashSet<String> = project
+        .tracks
+        .iter()
+        .flat_map(|track| track.inserts.iter())
+        .chain(project.master.inserts.iter())
+        .filter(|insert| insert.kind == EffectKind::Plugin)
+        .map(|insert| insert.id.clone())
+        .collect();
 
     let mut tracks: Vec<RenderTrack> = Vec::with_capacity(project.tracks.len());
     for track in &project.tracks {
@@ -224,6 +280,7 @@ pub fn build_render_graph(
         }
 
         let (pan_l, pan_r) = pan_gains(track.pan);
+        let inserts = build_inserts(&track.inserts, plugins.as_deref_mut(), &mut plugin_errors);
         tracks.push(RenderTrack {
             id: track.id.clone(),
             name: track.name.clone(),
@@ -237,7 +294,7 @@ pub fn build_render_graph(
             clips,
             midi_events,
             instrument: track.instrument.clone(),
-            inserts: track_inserts(track),
+            inserts,
         });
     }
 
@@ -331,6 +388,15 @@ pub fn build_render_graph(
         _ => Arc::new(MeterBank::new(ids)),
     };
 
+    let master_inserts = build_inserts(
+        &project.master.inserts,
+        plugins.as_deref_mut(),
+        &mut plugin_errors,
+    );
+    if let Some(manager) = plugins {
+        manager.retain(&active_plugins);
+    }
+
     let graph = RenderGraph {
         generation,
         sample_rate,
@@ -343,7 +409,7 @@ pub fn build_render_graph(
             gain: db_to_gain(project.master.volume_db),
             pan_l: master_pan_l,
             pan_r: master_pan_r,
-            inserts: project.master.inserts.clone(),
+            inserts: master_inserts,
             limiter: project.master.limiter,
         },
         end_frame,
@@ -356,13 +422,90 @@ pub fn build_render_graph(
     GraphBuildResult {
         graph,
         missing_media,
+        plugin_errors,
+    }
+}
+
+enum InsertRuntime {
+    /// Serialized plug-in insert that has no live instance (load failed or the
+    /// graph was built without a plugin manager).
+    Bypass,
+    Builtin(Box<EffectState>),
+    Plugin {
+        handle: PluginHandle,
+        scratch: PluginScratch,
+    },
+}
+
+impl InsertRuntime {
+    fn matches(&self, insert: &RenderInsert) -> bool {
+        match (self, &insert.plugin) {
+            (InsertRuntime::Bypass, None) => insert.effect.kind == EffectKind::Plugin,
+            (InsertRuntime::Builtin(state), None) => {
+                insert.effect.kind != EffectKind::Plugin && state.matches(&insert.effect.kind)
+            }
+            (InsertRuntime::Plugin { handle, .. }, Some(plugin)) => handle.same(plugin),
+            _ => false,
+        }
+    }
+
+    fn new_for(insert: &RenderInsert, sample_rate: u32) -> Self {
+        match &insert.plugin {
+            Some(handle) => InsertRuntime::Plugin {
+                handle: handle.clone(),
+                scratch: PluginScratch::new(sample_rate),
+            },
+            None if insert.effect.kind == EffectKind::Plugin => InsertRuntime::Bypass,
+            None => {
+                InsertRuntime::Builtin(Box::new(EffectState::new(&insert.effect.kind, sample_rate)))
+            }
+        }
+    }
+}
+
+fn align_inserts(runtimes: &mut Vec<InsertRuntime>, inserts: &[RenderInsert], sample_rate: u32) {
+    runtimes.truncate(inserts.len());
+    while runtimes.len() < inserts.len() {
+        let index = runtimes.len();
+        runtimes.push(InsertRuntime::new_for(&inserts[index], sample_rate));
+    }
+    for (runtime, insert) in runtimes.iter_mut().zip(inserts.iter()) {
+        if !runtime.matches(insert) {
+            *runtime = InsertRuntime::new_for(insert, sample_rate);
+        }
+    }
+}
+
+fn process_inserts(
+    runtimes: &mut [InsertRuntime],
+    inserts: &[RenderInsert],
+    left: &mut [f32],
+    right: &mut [f32],
+    frames: usize,
+    sample_rate: u32,
+) {
+    for (runtime, insert) in runtimes.iter_mut().zip(inserts.iter()) {
+        if !insert.effect.enabled {
+            continue;
+        }
+        match runtime {
+            InsertRuntime::Bypass => {}
+            InsertRuntime::Builtin(state) => {
+                state.process(&insert.effect, left, right, sample_rate);
+            }
+            InsertRuntime::Plugin { handle, scratch } => {
+                // `try_lock` inside `PluginScratch` means an open editor can
+                // never block the audio callback; contention bypasses one block.
+                scratch.process(handle, left, right, frames, sample_rate);
+            }
+        }
     }
 }
 
 struct TrackRuntime {
     synth: Option<Synth>,
     cursor: usize,
-    effects: Vec<EffectState>,
+    effects: Vec<InsertRuntime>,
 }
 
 pub struct RenderRuntime {
@@ -377,7 +520,7 @@ pub struct RenderRuntime {
     pub master_r: Vec<f32>,
     meter_peaks: Vec<f32>,
     tracks: HashMap<String, TrackRuntime>,
-    master_effects: Vec<EffectState>,
+    master_effects: Vec<InsertRuntime>,
     last_reset_seq: u64,
 }
 
@@ -403,19 +546,6 @@ impl RenderRuntime {
             tracks: HashMap::new(),
             master_effects: Vec::new(),
             last_reset_seq: u64::MAX,
-        }
-    }
-
-    fn align_effects(effects: &mut Vec<EffectState>, inserts: &[InsertEffect], sample_rate: u32) {
-        effects.truncate(inserts.len());
-        while effects.len() < inserts.len() {
-            let kind = inserts[effects.len()].kind.clone();
-            effects.push(EffectState::new(&kind, sample_rate));
-        }
-        for (state, insert) in effects.iter_mut().zip(inserts.iter()) {
-            if !state.matches(&insert.kind) {
-                *state = EffectState::new(&insert.kind, sample_rate);
-            }
         }
     }
 
@@ -462,7 +592,7 @@ impl RenderRuntime {
             } else {
                 entry.synth = None;
             }
-            Self::align_effects(&mut entry.effects, &track.inserts, graph.sample_rate);
+            align_inserts(&mut entry.effects, &track.inserts, graph.sample_rate);
             if force_seek || entry.cursor > track.midi_events.len() {
                 entry.cursor = track
                     .midi_events
@@ -479,7 +609,11 @@ impl RenderRuntime {
         }
         self.bus_l.retain(|index, _| *index < graph.tracks.len());
         self.bus_r.retain(|index, _| *index < graph.tracks.len());
-        Self::align_effects(&mut self.master_effects, &graph.master.inserts, graph.sample_rate);
+        align_inserts(
+            &mut self.master_effects,
+            &graph.master.inserts,
+            graph.sample_rate,
+        );
         if force_seek {
             for runtime in self.tracks.values_mut() {
                 if let Some(synth) = &mut runtime.synth {
@@ -739,14 +873,14 @@ pub fn render_block(
         }
 
         if let Some(track_runtime) = runtime.tracks.get_mut(&track.id) {
-            for (effect, insert) in track_runtime.effects.iter_mut().zip(track.inserts.iter()) {
-                effect.process(
-                    insert,
-                    &mut runtime.track_l[..frames],
-                    &mut runtime.track_r[..frames],
-                    graph.sample_rate,
-                );
-            }
+            process_inserts(
+                &mut track_runtime.effects,
+                &track.inserts,
+                &mut runtime.track_l[..frames],
+                &mut runtime.track_r[..frames],
+                frames,
+                graph.sample_rate,
+            );
         }
 
         let mut peak_l = 0.0f32;
@@ -777,14 +911,14 @@ pub fn render_block(
         }
     }
 
-    for (effect, insert) in runtime.master_effects.iter_mut().zip(graph.master.inserts.iter()) {
-        effect.process(
-            insert,
-            &mut runtime.master_l[..frames],
-            &mut runtime.master_r[..frames],
-            graph.sample_rate,
-        );
-    }
+    process_inserts(
+        &mut runtime.master_effects,
+        &graph.master.inserts,
+        &mut runtime.master_l[..frames],
+        &mut runtime.master_r[..frames],
+        frames,
+        graph.sample_rate,
+    );
 
     let mut master_peak = 0.0f32;
     for i in 0..frames {
@@ -893,7 +1027,7 @@ mod tests {
         let mut project = project_with_synth();
         project.master.limiter = true;
         let mut cache = AssetCache::default();
-        let built = build_render_graph(&project, 48_000, &mut cache, 1, None);
+        let built = build_render_graph(&project, 48_000, &mut cache, 1, None, None);
         let graph = built.graph;
         let mut runtime = RenderRuntime::new();
         let mut stats = 0.0f32;
@@ -926,12 +1060,12 @@ mod tests {
         project.tracks.push(second);
         project.tracks[0].mute = true;
         let mut cache = AssetCache::default();
-        let built = build_render_graph(&project, 48_000, &mut cache, 1, None);
+        let built = build_render_graph(&project, 48_000, &mut cache, 1, None, None);
         assert!(!built.graph.tracks[0].active);
         assert!(built.graph.tracks[1].active);
         project.tracks[0].mute = false;
         project.tracks[1].solo = true;
-        let built = build_render_graph(&project, 48_000, &mut cache, 2, None);
+        let built = build_render_graph(&project, 48_000, &mut cache, 2, None, None);
         assert!(!built.graph.tracks[0].active);
         assert!(built.graph.tracks[1].active);
     }
@@ -946,7 +1080,7 @@ mod tests {
         project.tracks.push(audio);
         project.tracks.push(group);
         let mut cache = AssetCache::default();
-        let built = build_render_graph(&project, 48_000, &mut cache, 1, None);
+        let built = build_render_graph(&project, 48_000, &mut cache, 1, None, None);
         let order = &built.graph.order;
         let audio_index = order.iter().position(|i| *i == 0).unwrap();
         let group_index = order.iter().position(|i| *i == 1).unwrap();
@@ -959,7 +1093,7 @@ mod tests {
         group.id = "g".into();
         group.output = "g".into();
         cyclic.tracks.push(group);
-        let built = build_render_graph(&cyclic, 48_000, &mut cache, 2, None);
+        let built = build_render_graph(&cyclic, 48_000, &mut cache, 2, None, None);
         assert_eq!(built.graph.tracks[0].parent, None);
     }
 
@@ -1008,7 +1142,7 @@ mod tests {
         project.tracks.push(track);
 
         let mut cache = AssetCache::default();
-        let built = build_render_graph(&project, 48_000, &mut cache, 1, None);
+        let built = build_render_graph(&project, 48_000, &mut cache, 1, None, None);
         assert!(built.missing_media.is_empty());
         let graph = built.graph;
         let right = graph.tracks[0]
@@ -1060,7 +1194,7 @@ mod tests {
         });
         project.tracks.push(track);
         let mut cache = AssetCache::default();
-        let built = build_render_graph(&project, 48_000, &mut cache, 1, None);
+        let built = build_render_graph(&project, 48_000, &mut cache, 1, None, None);
         assert!(built.missing_media.is_empty());
         assert_eq!(built.graph.tracks[0].clips[0].start_frame, 24_000);
         let graph = built.graph;

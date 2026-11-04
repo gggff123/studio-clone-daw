@@ -322,6 +322,9 @@ impl EffectState {
             EffectKind::Delay => EffectState::Delay(Delay::new(sample_rate)),
             EffectKind::Reverb => EffectState::Reverb(Reverb::new(sample_rate)),
             EffectKind::Chorus => EffectState::Chorus(Chorus::new(sample_rate)),
+            // VST3 inserts are processed by `PluginManager`/`PluginScratch`, not by
+            // the built-in DSP state. The neutral state is never used in practice.
+            EffectKind::Plugin => EffectState::Gain,
         }
     }
 
@@ -619,6 +622,7 @@ mod tests {
             kind,
             enabled: true,
             params: map,
+            ..Default::default()
         }
     }
 

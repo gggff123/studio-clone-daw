@@ -469,6 +469,15 @@
   opacity: 0.55;
 }
 
+.insert-inspector-row.is-plugin {
+  border-color: #3f4b66;
+}
+
+.insert-inspector-row.is-plugin .insert-inspector-name {
+  color: #b9c9ea;
+  font-weight: 600;
+}
+
 .insert-slot-number {
   width: 13px;
   font-size: 8px;

@@ -17,6 +17,8 @@ import type {
   MidiExportResult,
   MidiImportResult,
   OpenResult,
+  PluginDescriptor,
+  PluginParameter,
   Project,
   RecordingInfo,
   RecordingResult,
@@ -93,6 +95,18 @@ export const api = {
   setWindowSize: (width: number, height: number) =>
     call<void>("set_window_size", { size: { width, height } }),
   quitApp: () => call<void>("quit_app"),
+
+  scanPlugins: (paths?: string[]) =>
+    call<PluginDescriptor[]>("scan_plugins", { paths: paths ?? null }),
+  pluginParameters: (insertId: string) =>
+    call<PluginParameter[]>("plugin_parameters", { insertId }),
+  setPluginParameter: (insertId: string, parameterId: number, value: number) =>
+    call<void>("set_plugin_parameter", { insertId, parameterId, value }),
+  openPluginEditor: (insertId: string) =>
+    call<void>("open_plugin_editor", { insertId }),
+  closePluginEditor: (insertId: string) =>
+    call<void>("close_plugin_editor", { insertId }),
+  closeAllPluginEditors: () => call<void>("close_all_plugin_editors"),
 };
 
 export function onExportProgress(

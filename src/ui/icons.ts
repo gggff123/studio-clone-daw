@@ -67,6 +67,8 @@ const ICONS: Record<string, string> = {
     '<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="2.6"/>',
   sliders:
     '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2.2"/><circle cx="9" cy="17" r="2.2"/>',
+  plug:
+    '<path d="M9 3v4M15 3v4"/><path d="M6.5 7h11v4a5.5 5.5 0 0 1-11 0V7z"/><path d="M12 16.5V21"/>',
   cursor: '<path d="M5 3l14 8.5-6.4 1.5L10 20 5 3z"/>',
   pencil: '<path d="M4 20l1-5L16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 2z"/><path d="M14 6l4 4"/>',
 };

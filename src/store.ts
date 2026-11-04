@@ -47,6 +47,8 @@ export type ModalType =
   | "addTrack"
   | "project"
   | "effect"
+  | "plugins"
+  | "plugin"
   | "settings";
 
 export interface ModalState {
