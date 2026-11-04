@@ -1,6 +1,6 @@
 [package]
 name = "studio-core"
-version = "0.1.0"
+version = "0.1.3"
 description = "Audio engine, project model, and MIDI support for Studio Clone"
 authors = ["Studio Clone"]
 edition = "2021"

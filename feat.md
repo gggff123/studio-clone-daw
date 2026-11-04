@@ -1,7 +1,7 @@
 # Studio Clone - Feature and Development Tracker
 
-Last updated: 2026-10-28
-Current milestone: Milestone 1 preview / `0.1.0`
+Last updated: 2026-11-04
+Current milestone: Milestone 1 preview / `0.1.3`
 Status legend: `[x]` implemented and verified, `[~]` implemented but not fully verified, `[!]` blocked, `[ ]` not implemented
 
 This file is the authoritative status record. A UI control is not marked complete

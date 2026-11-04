@@ -146,8 +146,10 @@ jobs:
             - AppImage: portable x86_64 build
             - deb: Debian/Ubuntu package
 
-            Known limitations: no MIDI recording, no ASIO, input monitoring is not implemented,
-            sends are stored but not mixed, constant tempo, and no plug-in hosting.
+            Known limitations: no ASIO, input monitoring is not implemented, sends are stored
+            but not mixed, tempo is constant, and VST3 hosting is limited to in-process effect
+            inserts. Instrument plug-ins, side-chain routing, and plug-in automation lanes are
+            not implemented. Windows builds are unsigned, so SmartScreen may warn.
             See README.md for the full list.
 
             This is an original, Cubase-inspired project and is not affiliated with Steinberg.

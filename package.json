@@ -1,7 +1,7 @@
 {
   "name": "studio-clone-daw",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.3",
   "description": "Cubase Pro 12-inspired desktop DAW built with Tauri 2, Rust and TypeScript",
   "type": "module",
   "scripts": {
