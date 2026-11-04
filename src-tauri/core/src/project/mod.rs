@@ -278,11 +278,40 @@ pub enum EffectKind {
     Delay,
     Reverb,
     Chorus,
+    /// A hosted VST3 plug-in. The plug-in binary is referenced by [`PluginRef`];
+    /// the insert itself only stores the opaque plug-in state.
+    Plugin,
 }
 
 impl Default for EffectKind {
     fn default() -> Self {
         EffectKind::Gain
+    }
+}
+
+/// Identity of a hosted VST3 plug-in.
+///
+/// The path is stored as text so projects remain portable between Windows, macOS
+/// and Linux. `uid` is the VST3 class id when it is known; an empty uid means
+/// "load the first audio class in the bundle", which is what older plug-ins
+/// without `moduleinfo.json` require.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PluginRef {
+    pub path: String,
+    pub uid: String,
+    pub name: String,
+    pub vendor: String,
+    pub category: String,
+}
+
+impl PluginRef {
+    pub fn display_name(&self) -> &str {
+        if self.name.is_empty() {
+            "VST3 Plug-in"
+        } else {
+            self.name.as_str()
+        }
     }
 }
 
@@ -293,6 +322,11 @@ pub struct InsertEffect {
     pub kind: EffectKind,
     pub enabled: bool,
     pub params: BTreeMap<String, f64>,
+    /// Set for `EffectKind::Plugin` inserts.
+    pub plugin: Option<PluginRef>,
+    /// Opaque VST3 component state, base64 encoded. It is captured from the live
+    /// plug-in instance before saving and restored when the project is opened.
+    pub state: String,
 }
 
 impl Default for InsertEffect {
@@ -302,6 +336,8 @@ impl Default for InsertEffect {
             kind: EffectKind::Gain,
             enabled: true,
             params: BTreeMap::new(),
+            plugin: None,
+            state: String::new(),
         }
     }
 }

@@ -24,11 +24,13 @@ import type {
   MidiNote,
   MidiPart,
   MissingMedia,
+  PluginDescriptor,
+  PluginParameter,
   Project,
   Track,
   TrackKind,
 } from "./types";
-import { createInsert } from "./ui/effects";
+import { createInsert, createPluginInsert } from "./ui/effects";
 import {
   clamp,
   fileStem,
@@ -190,6 +192,7 @@ export function endEffectGesture(): void {
 let syncTimer: number | undefined;
 let syncInFlight = false;
 let syncQueued = false;
+let syncWaiters: Array<() => void> = [];
 
 export function scheduleEngineSync(delay = 120): void {
   if (syncTimer !== undefined) window.clearTimeout(syncTimer);
@@ -199,17 +202,27 @@ export function scheduleEngineSync(delay = 120): void {
   }, delay);
 }
 
-export async function syncEngine(): Promise<void> {
-  if (!state.ready) return;
+/**
+ * Push the current project to the audio engine. When a sync is already running
+ * the returned promise resolves after the queued follow-up run too, so callers
+ * that need the latest project loaded (for example opening a plug-in editor)
+ * never race an older snapshot.
+ */
+export function syncEngine(): Promise<void> {
+  if (!state.ready) return Promise.resolve();
   if (syncInFlight) {
     syncQueued = true;
-    return;
+    return new Promise((resolve) => syncWaiters.push(resolve));
   }
+  return runEngineSync();
+}
+
+async function runEngineSync(): Promise<void> {
   syncInFlight = true;
   try {
     const snapshot = clone(state.project);
     const result = await api.setEngineProject(snapshot);
-    state.engineWarnings = result.missingMedia;
+    state.engineWarnings = [...result.missingMedia, ...result.pluginErrors];
     if (result.sampleRate > 0) {
       // The engine runs at the device rate; the project keeps its metadata rate.
     }
@@ -223,7 +236,11 @@ export async function syncEngine(): Promise<void> {
     syncInFlight = false;
     if (syncQueued) {
       syncQueued = false;
-      void syncEngine();
+      void runEngineSync();
+    } else {
+      const waiters = syncWaiters;
+      syncWaiters = [];
+      for (const resolve of waiters) resolve();
     }
   }
 }
@@ -1530,15 +1547,88 @@ function effectContainer(host: EffectHost): { inserts: InsertEffect[] } | null {
 
 export function addInsert(host: EffectHost, kind: EffectKind): InsertEffect | null {
   const container = effectContainer(host);
-  if (!container) return null;
+  if (!container || kind === "plugin") return null;
   const insert = createInsert(kind, uuid());
   edit("project", () => container.inserts.push(insert));
   return insert;
 }
 
+/** Add a scanned VST3 effect, wait for the engine to load it, then edit it. */
+export async function addPluginInsert(
+  host: EffectHost,
+  descriptor: PluginDescriptor,
+): Promise<InsertEffect | null> {
+  const container = effectContainer(host);
+  if (!container) return null;
+  const insert = createPluginInsert(
+    {
+      path: descriptor.path,
+      uid: descriptor.uid,
+      name: descriptor.name,
+      vendor: descriptor.vendor,
+      category: descriptor.category,
+    },
+    uuid(),
+  );
+  edit("project", () => container.inserts.push(insert));
+  closeModal();
+  await syncEngine();
+  openModal("plugin", { host, effectId: insert.id });
+  return insert;
+}
+
+/** Scan the standard VST3 folders (plus optional extra paths). */
+export async function scanPlugins(paths?: string[]): Promise<PluginDescriptor[]> {
+  return api.scanPlugins(paths);
+}
+
+export async function loadPluginParameters(effectId: string): Promise<PluginParameter[]> {
+  return api.pluginParameters(effectId);
+}
+
+export async function setPluginParameter(
+  effectId: string,
+  parameterId: number,
+  value: number,
+): Promise<void> {
+  try {
+    await api.setPluginParameter(effectId, parameterId, value);
+  } catch (error) {
+    toast(`Plug-in parameter failed: ${error}`, "error");
+  }
+}
+
+/** Plug-in state lives in the instance; mark the project so it is captured on save. */
+export function notePluginEdited(): void {
+  if (!state.dirty) {
+    state.dirty = true;
+    state.project.modifiedAt = nowIso();
+    syncTitle();
+    store.emit("project");
+  }
+}
+
+export async function openPluginEditor(effectId: string): Promise<void> {
+  try {
+    await api.openPluginEditor(effectId);
+  } catch (error) {
+    toast(`Cannot open the plug-in editor: ${error}`, "error");
+  }
+}
+
+export async function closePluginEditor(effectId: string): Promise<void> {
+  try {
+    await api.closePluginEditor(effectId);
+  } catch {
+    // The editor may not have been open.
+  }
+}
+
 export function removeInsert(host: EffectHost, effectId: string): void {
   const container = effectContainer(host);
   if (!container) return;
+  const insert = container.inserts.find((entry) => entry.id === effectId);
+  if (insert?.kind === "plugin") void closePluginEditor(effectId);
   edit("project", () => {
     container.inserts = container.inserts.filter((insert) => insert.id !== effectId);
   });
@@ -2086,6 +2176,12 @@ export async function exportMixdown(
       ).toFixed(1)} dBFS.`,
       "success",
     );
+    if (result.pluginErrors.length > 0) {
+      toast(
+        `${result.pluginErrors.length} plug-in error(s) during export: ${result.pluginErrors.join(" · ")}`,
+        "error",
+      );
+    }
     return result;
   } catch (error) {
     toast(`Export failed: ${error}`, "error");

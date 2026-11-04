@@ -1,4 +1,4 @@
-import type { EffectKind, InsertEffect } from "../types";
+import type { EffectKind, InsertEffect, PluginRef } from "../types";
 
 export interface ParamDef {
   key: string;
@@ -145,7 +145,51 @@ export const EFFECT_DEFS: EffectDef[] = [
 ];
 
 export function effectDef(kind: EffectKind): EffectDef {
+  if (kind === "plugin") return PLUGIN_EFFECT_DEF;
   return EFFECT_DEFS.find((entry) => entry.kind === kind) ?? EFFECT_DEFS[0];
+}
+
+export const PLUGIN_EFFECT_DEF: EffectDef = {
+  kind: "plugin",
+  name: "VST3 Plug-in",
+  short: "VST3",
+  description: "Hosted third-party VST3 effect.",
+  params: [],
+};
+
+export function insertDisplayName(insert: InsertEffect): string {
+  if (insert.kind === "plugin") {
+    return insert.plugin?.name?.trim() || "VST3 Plug-in";
+  }
+  return effectDef(insert.kind).name;
+}
+
+export function insertShortName(insert: InsertEffect): string {
+  if (insert.kind === "plugin") {
+    const name = insert.plugin?.name?.trim();
+    if (!name) return "VST3";
+    return name.length > 14 ? `${name.slice(0, 13)}…` : name;
+  }
+  return effectDef(insert.kind).short;
+}
+
+export function insertDescription(insert: InsertEffect): string {
+  if (insert.kind === "plugin") {
+    const vendor = insert.plugin?.vendor?.trim();
+    return vendor ? `VST3 plug-in by ${vendor}` : "Hosted VST3 plug-in";
+  }
+  return effectDef(insert.kind).description;
+}
+
+export function createPluginInsert(reference: PluginRef, id: string): InsertEffect {
+  return {
+    id,
+    kind: "plugin",
+    enabled: true,
+    params: {},
+    plugin: { ...reference },
+    state: "",
+  };
 }
 
 export function defaultParams(kind: EffectKind): Record<string, number> {

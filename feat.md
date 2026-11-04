@@ -40,6 +40,7 @@ the packaged desktop app.
 - [x] Resizable left and lower zones
 - [x] Panel tabs and lower-zone switching
 - [x] Keyboard shortcuts and context menus
+- [x] Shortcuts keep working after interacting with faders, tempo, and other controls
 - [~] Compact layout at 768 px screen height; MixConsole strip controls can clip at the default lower-zone height
 - [~] Lower-zone header duplication in empty piano state and MixConsole
 - [x] Status bar with engine, tempo, tracks, dirty state, and position
@@ -118,8 +119,8 @@ the packaged desktop app.
 - [x] Presets and parameter persistence
 - [x] Pitch bend and sustain handling from MIDI input
 - [~] Polyphony/voice stealing stability needs a stress test
+- [~] VST3 effect hosting (in-process, track/master inserts; instruments and AU not hosted)
 - [ ] Sample-based instruments
-- [ ] VST/AU hosting
 
 ## Milestone 8 - MixConsole
 
@@ -149,6 +150,8 @@ the packaged desktop app.
 - [x] Chorus
 - [x] Bypass, ordering, and parameter persistence
 - [x] Effect parameter dialog and presets where defined
+- [x] VST3 effect insert browser, native editor, parameter fallback, state capture, and export support
+- [~] Native VST3 editors need verification on a machine with real plug-ins installed
 - [~] Effect runtime state and tails need longer playback verification
 
 ## Milestone 10 - Recording

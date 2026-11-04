@@ -10,9 +10,9 @@ import {
   verticalFader,
   type FaderControl,
 } from "./controls";
-import { EFFECT_MENU, effectDef } from "./effects";
+import { EFFECT_MENU, effectDef, insertDisplayName, insertShortName } from "./effects";
 import { icon } from "./icons";
-import { openContextMenu, openMenuFor } from "./menu";
+import { openContextMenu, openMenuFor, type MenuItem } from "./menu";
 
 let stripsHost: HTMLElement;
 let masterHost: HTMLElement;
@@ -85,14 +85,7 @@ function buildStrip(track: Track): HTMLElement {
       title: "Add insert effect",
       onClick: (event: MouseEvent) => {
         event.stopPropagation();
-        openMenuFor(
-          addInsert,
-          EFFECT_MENU.map((entry) => ({
-            label: entry.name,
-            action: () => actions.addInsert(track.id, entry.kind),
-          })),
-          180,
-        );
+        openMenuFor(addInsert, insertMenu(track.id), 180);
       },
     },
     icon("plus", 10),
@@ -240,17 +233,33 @@ function kindLabel(track: Track): string {
   }
 }
 
+function insertMenu(hostId: string): MenuItem[] {
+  return [
+    ...EFFECT_MENU.map((entry) => ({
+      label: entry.name,
+      action: () => actions.addInsert(hostId, entry.kind),
+    })),
+    { separator: true },
+    {
+      label: "VST3 Plug-ins…",
+      action: () => actions.openModal("plugins", { host: hostId }),
+    },
+  ];
+}
+
 function buildInsertRow(hostId: string, insert: InsertEffect): HTMLElement {
   const def = effectDef(insert.kind);
+  const plugin = insert.kind === "plugin";
+  const name = plugin ? insertDisplayName(insert) : def.name;
   const button = h(
     "button",
     {
-      class: `insert-row ${insert.enabled ? "" : "is-bypassed"}`.trim(),
+      class: `insert-row ${insert.enabled ? "" : "is-bypassed"} ${plugin ? "is-plugin" : ""}`.trim(),
       type: "button",
-      title: `${def.name} — click to edit`,
+      title: plugin ? `${name} — click to edit plug-in` : `${def.name} — click to edit`,
       onClick: (event: MouseEvent) => {
         event.stopPropagation();
-        actions.openModal("effect", { host: hostId, effectId: insert.id });
+        actions.openModal(plugin ? "plugin" : "effect", { host: hostId, effectId: insert.id });
       },
     },
     h("span", {
@@ -261,17 +270,24 @@ function buildInsertRow(hostId: string, insert: InsertEffect): HTMLElement {
         actions.toggleInsert(hostId, insert.id);
       },
     }),
-    h("span", { class: "insert-name", text: def.short }),
+    h("span", { class: "insert-name", text: plugin ? insertShortName(insert) : def.short }),
   );
   button.addEventListener("contextmenu", (event) => {
     event.stopPropagation();
-    openContextMenu(event, [
+    const items: MenuItem[] = [
       { label: insert.enabled ? "Bypass" : "Enable", action: () => actions.toggleInsert(hostId, insert.id) },
       { label: "Move Up", action: () => actions.moveInsert(hostId, insert.id, -1) },
       { label: "Move Down", action: () => actions.moveInsert(hostId, insert.id, 1) },
       { separator: true },
       { label: "Remove Insert", danger: true, action: () => actions.removeInsert(hostId, insert.id) },
-    ]);
+    ];
+    if (plugin) {
+      items.splice(1, 0, {
+        label: "Open Plug-in Editor",
+        action: () => void actions.openPluginEditor(insert.id),
+      });
+    }
+    openContextMenu(event, items);
   });
   return button;
 }
@@ -287,14 +303,7 @@ function buildMasterStrip(): HTMLElement {
       type: "button",
       onClick: (event: MouseEvent) => {
         event.stopPropagation();
-        openMenuFor(
-          addInsert,
-          EFFECT_MENU.map((entry) => ({
-            label: entry.name,
-            action: () => actions.addInsert("master", entry.kind),
-          })),
-          180,
-        );
+        openMenuFor(addInsert, insertMenu("master"), 180);
       },
     },
     icon("plus", 10),

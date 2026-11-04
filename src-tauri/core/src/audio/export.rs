@@ -1,4 +1,5 @@
 use crate::audio::asset::AssetCache;
+use crate::audio::plugins::PluginManager;
 use crate::audio::render::{build_render_graph, render_block, RenderRuntime};
 use crate::project::time::{frames_to_ticks, ticks_to_frames};
 use crate::project::Project;
@@ -26,6 +27,7 @@ pub struct ExportResult {
     pub frames: u64,
     pub duration_seconds: f64,
     pub peak: f32,
+    pub plugin_errors: Vec<String>,
 }
 
 fn temp_output(path: &Path) -> PathBuf {
@@ -64,13 +66,18 @@ where
     let mut render_project = project.clone();
     render_project.metronome = false;
     render_project.loop_region.enabled = false;
+    // Offline export gets its own instance set so the live graph is never
+    // disturbed by a faster-than-realtime render.
+    let mut plugin_manager = PluginManager::new_offline(sample_rate);
     let built = build_render_graph(
         &render_project,
         sample_rate,
         cache,
         0xE000_0000,
         None,
+        Some(&mut plugin_manager),
     );
+    let plugin_errors = built.plugin_errors;
     let graph = built.graph;
     let start_frame = ticks_to_frames(start_ticks, graph.tempo, graph.ppq, sample_rate);
     let end_frame = ticks_to_frames(end_ticks, graph.tempo, graph.ppq, sample_rate)
@@ -188,6 +195,7 @@ where
         frames: total_frames,
         duration_seconds: total_frames as f64 / sample_rate as f64,
         peak,
+        plugin_errors,
     })
 }
 

@@ -1,3 +1,4 @@
+use crate::audio::plugins::PluginManager;
 use crate::audio::render::{build_render_graph, render_block, RenderGraph, RenderRuntime};
 use crate::project::time::{frames_to_ticks, ticks_to_frames};
 use crate::project::Project;
@@ -142,6 +143,7 @@ pub struct AudioEngine {
 
 pub struct EngineLoadSummary {
     pub missing_media: Vec<String>,
+    pub plugin_errors: Vec<String>,
     pub track_count: usize,
 }
 
@@ -175,8 +177,14 @@ impl AudioEngine {
         self.sample_rate
     }
 
-    pub fn load_project(&mut self, project: &Project, cache: &mut crate::audio::asset::AssetCache) -> EngineLoadSummary {
+    pub fn load_project(
+        &mut self,
+        project: &Project,
+        cache: &mut crate::audio::asset::AssetCache,
+        plugins: &mut PluginManager,
+    ) -> EngineLoadSummary {
         let sample_rate = if self.sample_rate == 0 { 48_000 } else { self.sample_rate };
+        plugins.set_sample_rate(sample_rate);
         let existing = self
             .shared
             .graph
@@ -190,7 +198,7 @@ impl AudioEngine {
             .as_ref()
             .map(|g| g.generation.wrapping_add(1))
             .unwrap_or(1);
-        let built = build_render_graph(project, sample_rate, cache, generation, existing);
+        let built = build_render_graph(project, sample_rate, cache, generation, existing, Some(plugins));
         self.shared.loop_enabled.store(project.loop_region.enabled, Ordering::SeqCst);
         self.shared
             .loop_start
@@ -200,10 +208,12 @@ impl AudioEngine {
             .store(built.graph.loop_end_frame, Ordering::SeqCst);
         let track_count = built.graph.tracks.len();
         let missing_media = built.missing_media;
+        let plugin_errors = built.plugin_errors;
         self.shared.graph.store(Some(Arc::new(built.graph)));
         self.shared.bump_reset();
         EngineLoadSummary {
             missing_media,
+            plugin_errors,
             track_count,
         }
     }

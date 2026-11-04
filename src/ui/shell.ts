@@ -290,7 +290,15 @@ function buildToolbar(): { element: HTMLElement; refs: ToolbarRefs } {
       if (Number.isFinite(value)) actions.setTempo(value);
       else tempo.value = String(state.project.tempo);
     },
-    onKeydown: (event: KeyboardEvent) => event.stopPropagation(),
+    onKeydown: (event: KeyboardEvent) => {
+      // Leave text editing with Enter/Escape so global shortcuts work again
+      // without an extra click.
+      if (event.key === "Enter" || event.key === "Escape") {
+        if (event.key === "Escape") tempo.value = String(state.project.tempo);
+        tempo.blur();
+      }
+      event.stopPropagation();
+    },
   });
   const signature = h(
     "button",
@@ -917,153 +925,176 @@ function renderToasts(): void {
 // ---------------------------------------------------------------------------
 
 function wireKeyboard(): void {
-  document.addEventListener("keydown", (event) => {
-    const target = event.target;
-    if (event.key === "Escape") {
-      if (state.modal) {
-        event.preventDefault();
-        actions.closeModal();
-        return;
-      }
-      if (isEditableTarget(target)) return;
-      actions.clearSelection();
-      return;
-    }
-    if (state.modal) return;
-    if (isEditableTarget(target)) return;
-    const ctrl = event.ctrlKey || event.metaKey;
-    const interactive =
-      target instanceof HTMLButtonElement ||
-      target instanceof HTMLAnchorElement ||
-      target instanceof HTMLSelectElement;
+  // Capture phase: controls in the arrangement and mixer stop keyboard events
+  // from bubbling (for example the tempo field), which used to make every
+  // shortcut die after the user touched a control. Window capture always sees
+  // the event first. Text fields still keep their own typing and editing keys.
+  window.addEventListener(
+    "keydown",
+    (event) => {
+      if (event.isComposing) return;
+      const target = event.target;
+      const editable = isEditableTarget(target);
 
-    if (ctrl) {
-      const key = event.key.toLowerCase();
-      if (key === "s") {
-        event.preventDefault();
-        void actions.saveProject(event.shiftKey);
+      if (event.key === "Escape") {
+        if (state.modal) {
+          event.preventDefault();
+          actions.closeModal();
+          return;
+        }
+        if (editable) return;
+        actions.clearSelection();
         return;
       }
-      if (key === "o") {
-        event.preventDefault();
-        void actions.openProject();
-        return;
-      }
-      if (key === "n") {
-        event.preventDefault();
-        void actions.newProject();
-        return;
-      }
-      if (key === "e") {
-        event.preventDefault();
-        actions.openModal("export");
-        return;
-      }
-      if (key === "z") {
-        event.preventDefault();
-        if (event.shiftKey) actions.redo();
-        else actions.undo();
-        return;
-      }
-      if (key === "y") {
-        event.preventDefault();
-        actions.redo();
-        return;
-      }
-      if (key === "d") {
-        event.preventDefault();
-        actions.duplicateSelection();
-        return;
-      }
-      if (key === "a") {
-        event.preventDefault();
-        actions.selectAllNotes();
-        return;
-      }
-      if (key === ",") {
-        event.preventDefault();
-        actions.openModal("settings");
-        return;
-      }
-      if (event.key === "=" || event.key === "+") {
-        event.preventDefault();
-        actions.zoomIn();
-        return;
-      }
-      if (event.key === "-" || event.key === "_") {
-        event.preventDefault();
-        actions.zoomOut();
-        return;
-      }
-    }
+      if (state.modal) return;
 
-    if (event.key === " " && !interactive) {
-      event.preventDefault();
-      void actions.transportToggle();
-      return;
-    }
-    if (event.key === "Home") {
-      event.preventDefault();
-      void actions.seekTicks(0);
-      return;
-    }
-    if (event.key === "F12") {
-      event.preventDefault();
-      void actions.transportStop();
-      return;
-    }
-    if (event.key === "Tab" && !interactive) {
-      event.preventDefault();
-      const next = state.layout.bottomTab === "piano" ? "mixer" : "piano";
-      actions.setBottomTab(next);
-      if (next === "piano") refreshPiano();
-      return;
-    }
-    if (event.key === "Delete" || event.key === "Backspace") {
-      event.preventDefault();
-      actions.deleteSelection();
-      return;
-    }
-    if (event.key === "1") {
-      actions.setTool("select");
-      return;
-    }
-    if (event.key === "2") {
-      actions.setTool("draw");
-      return;
-    }
-    if (event.key === "3") {
-      actions.setTool("split");
-      return;
-    }
-    if (event.key.toLowerCase() === "l") {
-      actions.toggleLoop();
-      return;
-    }
-    if (event.key.toLowerCase() === "m") {
-      actions.toggleMetronome();
-      return;
-    }
-    if (event.key.toLowerCase() === "r") {
-      event.preventDefault();
-      void actions.toggleAudioRecording();
-      return;
-    }
-    if (event.key.toLowerCase() === "q") {
-      if (state.selection.trackId && state.selection.partId) {
-        actions.quantizeNotes(state.selection.trackId, state.selection.partId);
+      const ctrl = event.ctrlKey || event.metaKey;
+      if (ctrl) {
+        const key = event.key.toLowerCase();
+        if (key === "s") {
+          event.preventDefault();
+          void actions.saveProject(event.shiftKey);
+          return;
+        }
+        if (key === "o") {
+          event.preventDefault();
+          void actions.openProject();
+          return;
+        }
+        if (key === "n") {
+          event.preventDefault();
+          void actions.newProject();
+          return;
+        }
+        if (key === "e") {
+          event.preventDefault();
+          actions.openModal("export");
+          return;
+        }
+        if (key === ",") {
+          event.preventDefault();
+          actions.openModal("settings");
+          return;
+        }
+        if (event.key === "=" || event.key === "+") {
+          event.preventDefault();
+          actions.zoomIn();
+          return;
+        }
+        if (event.key === "-" || event.key === "_") {
+          event.preventDefault();
+          actions.zoomOut();
+          return;
+        }
+        // Text editing combinations must keep working inside text fields.
+        if (!editable) {
+          if (key === "z") {
+            event.preventDefault();
+            if (event.shiftKey) actions.redo();
+            else actions.undo();
+            return;
+          }
+          if (key === "y") {
+            event.preventDefault();
+            actions.redo();
+            return;
+          }
+          if (key === "d") {
+            event.preventDefault();
+            actions.duplicateSelection();
+            return;
+          }
+          if (key === "a") {
+            event.preventDefault();
+            actions.selectAllNotes();
+            return;
+          }
+        }
+        return;
       }
-      return;
-    }
-    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-      const ticks = state.transport?.positionTicks ?? 0;
-      const step = event.shiftKey
-        ? state.project.ppq * state.project.timeSignature.numerator
-        : state.layout.snapTicks || state.project.ppq / 4;
-      event.preventDefault();
-      void actions.seekTicks(Math.max(0, ticks + (event.key === "ArrowRight" ? step : -step)));
-    }
-  });
+
+      if (editable) return;
+
+      const interactive =
+        target instanceof HTMLButtonElement ||
+        target instanceof HTMLAnchorElement ||
+        target instanceof HTMLSelectElement;
+      const nativeValueControl =
+        target instanceof HTMLSelectElement ||
+        (target instanceof HTMLInputElement &&
+          ["range", "checkbox", "radio", "button", "color", "file"].includes(target.type));
+      // Native widgets keep arrows/space for their own keyboard interaction.
+      if (nativeValueControl) return;
+
+      if (event.key === " " && !interactive) {
+        event.preventDefault();
+        void actions.transportToggle();
+        return;
+      }
+      if (event.key === "Home") {
+        event.preventDefault();
+        void actions.seekTicks(0);
+        return;
+      }
+      if (event.key === "F12") {
+        event.preventDefault();
+        void actions.transportStop();
+        return;
+      }
+      if (event.key === "Tab" && !interactive) {
+        event.preventDefault();
+        const next = state.layout.bottomTab === "piano" ? "mixer" : "piano";
+        actions.setBottomTab(next);
+        if (next === "piano") refreshPiano();
+        return;
+      }
+      if (event.key === "Delete" || event.key === "Backspace") {
+        event.preventDefault();
+        actions.deleteSelection();
+        return;
+      }
+      if (event.key === "1") {
+        actions.setTool("select");
+        return;
+      }
+      if (event.key === "2") {
+        actions.setTool("draw");
+        return;
+      }
+      if (event.key === "3") {
+        actions.setTool("split");
+        return;
+      }
+      if (event.key.toLowerCase() === "l") {
+        actions.toggleLoop();
+        return;
+      }
+      if (event.key.toLowerCase() === "m") {
+        actions.toggleMetronome();
+        return;
+      }
+      if (event.key.toLowerCase() === "r") {
+        event.preventDefault();
+        void actions.toggleAudioRecording();
+        return;
+      }
+      if (event.key.toLowerCase() === "q") {
+        if (state.selection.trackId && state.selection.partId) {
+          actions.quantizeNotes(state.selection.trackId, state.selection.partId);
+        }
+        return;
+      }
+      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+        const ticks = state.transport?.positionTicks ?? 0;
+        const step = event.shiftKey
+          ? state.project.ppq * state.project.timeSignature.numerator
+          : state.layout.snapTicks || state.project.ppq / 4;
+        event.preventDefault();
+        void actions.seekTicks(Math.max(0, ticks + (event.key === "ArrowRight" ? step : -step)));
+      }
+    },
+    true,
+  );
 }
 
 function wireCloseGuard(): void {
