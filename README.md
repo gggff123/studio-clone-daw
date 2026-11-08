@@ -4,7 +4,6 @@ A compact, Cubase Pro 12-inspired desktop DAW built with **Tauri 2**, **Rust**, 
 
 Studio Clone is a working desktop audio application, not a UI mock-up. The same Rust audio graph renders live playback and offline WAV mixdowns.
 
-> **Project status:** early `0.1.3` preview. Core arrangement, MIDI editing, mixing, project persistence, WAV export, and audio-input recording work. MIDI recording and ASIO are not implemented yet. See [Known limitations](#known-limitations).
 
 ## Download
 
